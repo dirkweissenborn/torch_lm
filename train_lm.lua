@@ -183,12 +183,14 @@ if step > 0 then total = total_length end
 local beginning_time = torch.tic() - time_offset
 local total_cases = 0
 
-function create_decoder_state(x,y)
-  local s = {}
-  s.x = x
-  s.y = y
-  s.pos = 0
-  return s
+function create_decoder_state(x,y,s)
+  local _s = s or {}
+  _s.x = _s.x or transfer_data(x:clone())
+  _s.y = _s.y or transfer_data(y:clone())
+  _s.x:copy(x)
+  _s.y:copy(y)
+  _s.pos = 0
+  return _s
 end
 
 local start_ss = {}
@@ -202,7 +204,7 @@ end
 
 local rev_vocab = {}
 for k,v in pairs(decoder.vocab) do rev_vocab[v] = k end
-
+local eval_state
 local function run_split(split_index)
   -- save current start_s, and set start_s to zero
   for k,l in pairs(decoder.layers) do
@@ -226,7 +228,7 @@ local function run_split(split_index)
   loader:reset_batch_pointer(split_index)
   for i = 1, n do
     local x, y = loader:next_batch(split_index)
-    local eval_state = create_decoder_state(x,y)
+    eval_state = create_decoder_state(x, y, eval_state)
     local l = decoder:fp(eval_state, opt.seq_length)
     loss = loss + l
     if not opt.word_level then 

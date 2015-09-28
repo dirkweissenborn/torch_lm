@@ -1,7 +1,7 @@
 -- Modified from https://github.com/oxford-cs-ml-2015/practical6 & 
 --  https://github.com/karpathy/char-rnn/blob/master/util/CharSplitLMMinibatchLoader.lua
 -- the modification included support for train/val/test splits
-
+require("pl")
 local SplitLMMinibatchLoader = {}
 SplitLMMinibatchLoader.__index = SplitLMMinibatchLoader
 
@@ -48,7 +48,7 @@ function SplitLMMinibatchLoader.create(data_dir, batch_size, seq_length, split_f
 
   print('loading data files...')
   self.vocab_mapping = torch.load(vocab_file)
-  local data = transfer_data(torch.load(tensor_file))
+  local data = torch.load(tensor_file)
   local len = data:size(1)
   
   local train_l = math.floor(len * split_fractions[1])
@@ -192,7 +192,8 @@ function SplitLMMinibatchLoader.text_to_tensor(in_textfile, out_vocabfile, out_t
   -- construct a tensor with all the data
   print('putting data into tensor...')
   local data 
-  if not word_split then data = torch.ByteTensor(tot_len) -- store it into 1D first, then rearrange
+  if #ordered < 256 then data = torch.ByteTensor(tot_len) -- store it into 1D first, then rearrange
+  elseif #ordered < 32767 then data = torch.ShortTensor(tot_len)
   else data = torch.IntTensor(tot_len) end -- store it into 1D first, then rearrange
   f = io.open(in_textfile, "r")
   local currlen = 0

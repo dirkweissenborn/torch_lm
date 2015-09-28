@@ -93,12 +93,22 @@ if opt.optim == "adam" then
   optimizer = optim.adam
 end
 
-local keep = transfer_data(torch.zeros(params:size(1)))
+local eval_state
+function create_decoder_state(x,y,s)
+  local _s = s or {}
+  _s.x = _s.x or transfer_data(x:clone())
+  _s.y = _s.y or transfer_data(y:clone())
+  _s.x:copy(x)
+  _s.y:copy(y)
+  _s.pos = 0
+  return _s
+end
+
 for i = 1, n do
   local x, y = loader:next_batch(3)
-  eval_state.x = transform(x)
-  eval_state.y = transform(y)
-  eval_state.pos = 0
+  x = transform(x)
+  y = transform(y)
+  eval_state = create_decoder_state(x,y,eval_state)
   local l = run(eval_state)
   if opt.stp_lr > 0 then
     optim.sgd( function(params)
