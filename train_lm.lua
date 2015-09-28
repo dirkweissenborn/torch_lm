@@ -264,7 +264,7 @@ local function run_checkpoint()
     local epoch = step / epoch_size
     if optim_state.valid_loss > loss+1e-3 then -- only save this if loss got better
       local train_loss = 0
-      for i = 1, math.min(epoch_size,#optim_state.losses) do train_loss = train_loss + optim_state.losses[i] end
+      for i = 1, math.min(opt.checkpoint,#optim_state.losses) do train_loss = train_loss + optim_state.losses[i] end
       train_loss = train_loss / (total*opt.repeats)
       optim_state.valid_loss = loss
       append_to_log(util.d(torch.toc(beginning_time)) .. "\t" ..
@@ -335,7 +335,7 @@ while step < (opt.epochs * epoch_size) do
   if opt.weight_decay > 0 then params:mul(1-opt.weight_decay) end
   local _, loss = optim.adam(feval, params, optim_state)
 
-  local index = (step-1) % epoch_size + 1
+  local index = (step-1) % opt.checkpoint + 1
   optim_state.losses[index] = loss[1]
   
   if(step < epoch_size) then total = total + opt.seq_length end
@@ -345,7 +345,7 @@ while step < (opt.epochs * epoch_size) do
   if (step-1) % math.floor(epoch_size / 10 +0.5) == 0 or step % epoch_size == 0 then
     local norm_dw = grad_params:norm() / params:norm()
     local mean_loss = 0
-    for i = 1, math.min(epoch_size,#optim_state.losses) do mean_loss = mean_loss + optim_state.losses[i] end
+    for i = 1, math.min(opt.checkpoint,#optim_state.losses) do mean_loss = mean_loss + optim_state.losses[i] end
     mean_loss = mean_loss / (total*opt.repeats)
     local wps = math.floor(total_cases / torch.toc(beginning_time))
     local since_beginning = util.d(torch.toc(beginning_time) / 60)
