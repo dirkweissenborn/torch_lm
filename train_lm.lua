@@ -178,8 +178,6 @@ if use_cuda then cutorch.synchronize() end
 collectgarbage()
 
 ---------- Code to run at checkpoint -------
-local total = 0
-if step > 0 then total = total_length end
 local beginning_time = torch.tic() - time_offset
 local total_cases = 0
 
@@ -264,8 +262,8 @@ local function run_checkpoint()
     local epoch = step / epoch_size
     if optim_state.valid_loss > loss+1e-3 then -- only save this if loss got better
       local train_loss = 0
-      for i = 1, math.min(opt.checkpoint,#optim_state.losses) do train_loss = train_loss + optim_state.losses[i] end
-      train_loss = train_loss / (total*opt.repeats)
+      for i = 1, #optim_state.losses do train_loss = train_loss + optim_state.losses[i] end
+      train_loss = train_loss / #optim_state.losses / opt.seq_length
       optim_state.valid_loss = loss
       append_to_log(util.d(torch.toc(beginning_time)) .. "\t" ..
           util.f3(epoch) .. "\t" .. 
@@ -301,6 +299,7 @@ if opt.overwrite then params:uniform(-0.08, 0.08) end
 print("Creating decoders: " .. opt.seq_length .. "...")
 decoder:init_encoders(opt.seq_length)
 local last_loss = 0
+local train_state
 function feval(x)
   decoder:enable_training()
 
@@ -309,7 +308,7 @@ function feval(x)
 
   ------------------ get minibatch -------------------
   local x, y = loader:next_batch(1)
-  local train_state = create_decoder_state(x,y,train_state)
+  train_state = create_decoder_state(x,y,train_state)
 
   -- forward
   local loss = decoder:fp(train_state, opt.seq_length)
@@ -338,15 +337,14 @@ while step < (opt.epochs * epoch_size) do
   local index = (step-1) % opt.checkpoint + 1
   optim_state.losses[index] = loss[1]
   
-  if(step < epoch_size) then total = total + opt.seq_length end
   total_cases = total_cases + opt.seq_length * opt.batch_size
   
   local epoch = step / epoch_size
   if (step-1) % math.floor(epoch_size / 10 +0.5) == 0 or step % epoch_size == 0 then
     local norm_dw = grad_params:norm() / params:norm()
     local mean_loss = 0
-    for i = 1, math.min(opt.checkpoint,#optim_state.losses) do mean_loss = mean_loss + optim_state.losses[i] end
-    mean_loss = mean_loss / (total*opt.repeats)
+    for i = 1, #optim_state.losses do mean_loss = mean_loss + optim_state.losses[i] end
+    mean_loss = mean_loss / #optim_state.losses / opt.seq_length
     local wps = math.floor(total_cases / torch.toc(beginning_time))
     local since_beginning = util.d(torch.toc(beginning_time) / 60)
     print('epoch = ' .. util.f3(epoch) ..
