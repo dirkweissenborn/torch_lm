@@ -185,8 +185,10 @@ local total_cases = 0
 
 function create_decoder_state(x,y,s)
   local _s = s or {}
-  _s.x = _s.x or transfer_data(x:clone())
-  _s.y = _s.y or transfer_data(y:clone())
+  if not _s.x or _s.x:size(1) ~= x:size(1) then
+    _s.x = transfer_data(x:clone())
+    _s.y = transfer_data(y:clone())
+  end
   _s.x:copy(x)
   _s.y:copy(y)
   _s.pos = 0
