@@ -2,6 +2,7 @@
 --  https://github.com/karpathy/char-rnn/blob/master/util/CharSplitLMLinewiseMinibatchLoader.lua
 -- the modification included support for train/val/test splits
 require("pl")
+local tds = require 'tds'
 local SplitLMLinewiseMinibatchLoader = {}
 SplitLMLinewiseMinibatchLoader.__index = SplitLMLinewiseMinibatchLoader
 
@@ -74,13 +75,14 @@ function SplitLMLinewiseMinibatchLoader.create(data_dir, batch_size, split_fract
   self.seq_length = 0
   print('reshaping tensors and sorting by line-length...')
   local function create_batches(d)
-    local xdata = {}
-    local ydata = {}
+    local xdata = tds.hash()
+    local ydata = tds.hash()
 
     local eos = self.vocab_mapping["<eos>"]
     local sos = self.vocab_mapping["<sos>"]
     local len = 0
     local tmp = {}
+    local i = 0
     for _,data in tablex.sort(d, 
       function(x,y) return d[x]:size(1) < d[y]:size(1) or (d[x]:size(1) == d[y]:size(1) and x<y) end) do
       table.insert(tmp,data)
@@ -94,32 +96,33 @@ function SplitLMLinewiseMinibatchLoader.create(data_dir, batch_size, split_fract
           xbatch[j][1] = sos
           ybatch[j]:sub(1,tmp[j]:size(1)):copy(tmp[j])
         end
-        table.insert(xdata,xbatch:t())
-        table.insert(ydata,ybatch:t())
+        i = i+1
+        xdata[i] = xbatch:t()
+        ydata[i] = ybatch:t()
         tmp = {}
       end
     end
     return xdata, ydata
   end
 
-  self.x_batches = {}
-  self.y_batches = {}
+  self.x_batches = tds.hash()
+  self.y_batches = tds.hash()
 
   local x_batches_train, y_batches_train = create_batches(train)
-  table.insert(self.x_batches, x_batches_train)
-  table.insert(self.y_batches, y_batches_train)
+  self.x_batches[1] = x_batches_train
+  self.y_batches[1] = y_batches_train
   self.ntrain = #x_batches_train
 
   local x_batches_valid, y_batches_valid = create_batches(valid)
-  table.insert(self.x_batches, x_batches_valid)
-  table.insert(self.y_batches, y_batches_valid)
+  self.x_batches[2] = x_batches_valid
+  self.y_batches[2] = y_batches_valid
   self.nval = #x_batches_valid
 
   self.ntest = 0
   if test then
     local x_batches_test, y_batches_test = create_batches(test)
-    table.insert(self.x_batches, x_batches_test)
-    table.insert(self.y_batches, y_batches_test)
+    self.x_batches[3] = x_batches_test
+    self.y_batches[3] = y_batches_test
     self.ntest = #x_batches_test
   end
 
@@ -219,7 +222,7 @@ function SplitLMLinewiseMinibatchLoader.text_to_tensor(in_textfile, out_vocabfil
   -- construct a tensor with all the data
   print('putting data into tensor...')
   
-  local data = {}
+  local data = tds.hash()
   f = io.open(in_textfile, "r")
   for rawdata in f:lines() do
     local d     
@@ -241,7 +244,7 @@ function SplitLMLinewiseMinibatchLoader.text_to_tensor(in_textfile, out_vocabfil
         end
       end
     end
-    table.insert(data,d)
+    data[#data+1] = d
   end
   f:close()
 
