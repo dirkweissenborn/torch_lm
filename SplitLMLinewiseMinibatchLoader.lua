@@ -49,7 +49,12 @@ function SplitLMLinewiseMinibatchLoader.create(data_dir, batch_size, split_fract
 
   print('loading data files...')
   self.vocab_mapping = torch.load(vocab_file)
-  local data = torch.load(tensor_file)
+  --local data = torch.load(tensor_file)
+  local file = torch.DiskFile(out_tensorfile, 'w')
+  file['binary'](file)
+  file:referenced(false)
+  local data = file:readObject()
+  file:close()
   local len = #data
 
   local train_l = math.floor(len * split_fractions[1])
@@ -237,7 +242,7 @@ function SplitLMLinewiseMinibatchLoader.text_to_tensor(in_textfile, out_vocabfil
       if #ordered < 256 then d = torch.ByteTensor(#word_split)
       elseif #ordered < 32767 then d = torch.ShortTensor(#word_split)
       else d = torch.IntTensor(#word_split) end
-      
+
       for i=1, #word_split do
         if word_split[i] ~= "" then 
           d[i] = vocab_mapping[word_split[i]]
@@ -252,7 +257,11 @@ function SplitLMLinewiseMinibatchLoader.text_to_tensor(in_textfile, out_vocabfil
   print('saving ' .. out_vocabfile)
   torch.save(out_vocabfile, vocab_mapping)
   print('saving ' .. out_tensorfile)
-  torch.save(out_tensorfile, data)
+  local file = torch.DiskFile(out_tensorfile, 'w')
+  file['binary'](file)
+  file:referenced(false)
+  file:writeObject(data)
+  file:close()
 end
 
 return SplitLMLinewiseMinibatchLoader
