@@ -69,6 +69,11 @@ function SplitLMLinewiseMinibatchLoader.create(data_dir, batch_size, split_fract
     test = tds.hash()
     tablex.icopy(test, data, 1, train_l+valid_l+1,test_l)
   end
+  
+  self.data = tds.hash()
+  self.data[1] = train
+  self.data[2] = valid
+  self.data[3] = test
 
   -- count vocab
   self.vocab_size = 0
@@ -80,61 +85,31 @@ function SplitLMLinewiseMinibatchLoader.create(data_dir, batch_size, split_fract
   self.batch_size = batch_size
   self.seq_length = 0
   print('reshaping tensors and sorting by line-length...')
-  local function create_batches(d)
-    local xdata = tds.hash()
-    local ydata = tds.hash()
-
-    local eos = self.vocab_mapping["<eos>"]
-    local sos = self.vocab_mapping["<sos>"]
-    local len = 0
-    local tmp = {}
+  local function sort_data(d)
     local lens = torch.ShortTensor(#d)
     for i=1,#d do lens[i] = d[i]:size(1) end
-    local _,sorted = torch.sort(lens)
+    local sorted,sorted_ix = torch.sort(lens)
+    self.seq_length = math.max(sorted[sorted:size(1)]+1, self.seq_length)
     lens = nil
     collectgarbage()
-
-    local i = 0
-    for k=1, sorted:size(1) do
-      table.insert(tmp,d[sorted[k]])
-      if #tmp == batch_size then
-        for j=1,batch_size do len = math.max(len, tmp[j]:size(1)+1) end
-        local xbatch = torch.zeros(batch_size,len):fill(eos)
-        local ybatch = torch.zeros(batch_size,len):fill(eos)
-        self.seq_length = math.max(self.seq_length, len)
-        for j=1,batch_size do
-          xbatch[j]:sub(2,tmp[j]:size(1)+1):copy(tmp[j])
-          xbatch[j][1] = sos
-          ybatch[j]:sub(1,tmp[j]:size(1)):copy(tmp[j])
-        end
-        i = i+1
-        xdata[i] = xbatch:t()
-        ydata[i] = ybatch:t()
-        tmp = {}
-      end
-    end
-    return xdata, ydata
+    
+    return sorted_ix
   end
 
-  self.x_batches = tds.hash()
-  self.y_batches = tds.hash()
+  self.length_sorted = {}
+  local sorted_train = sort_data(train)
+  self.length_sorted[1] = sorted_train
+  self.ntrain = math.floor(sorted_train:size(1)/batch_size)
 
-  local x_batches_train, y_batches_train = create_batches(train)
-  self.x_batches[1] = x_batches_train
-  self.y_batches[1] = y_batches_train
-  self.ntrain = #x_batches_train
-
-  local x_batches_valid, y_batches_valid = create_batches(valid)
-  self.x_batches[2] = x_batches_valid
-  self.y_batches[2] = y_batches_valid
-  self.nval = #x_batches_valid
+  local sorted_valid = sort_data(valid)
+  self.length_sorted[2] = sorted_valid
+  self.nval = math.floor(sorted_valid:size(1)/batch_size)
 
   self.ntest = 0
   if test then
-    local x_batches_test, y_batches_test = create_batches(test)
-    self.x_batches[3] = x_batches_test
-    self.y_batches[3] = y_batches_test
-    self.ntest = #x_batches_test
+    local sorted_test = sort_data(test)
+    self.length_sorted[3] = sorted_test
+    self.ntest = math.floor(sorted_test:size(1)/batch_size)
   end
 
   self.split_sizes = { self.ntrain, self.nval, self.ntest }
@@ -175,9 +150,26 @@ function SplitLMLinewiseMinibatchLoader:next_batch(split_index)
   if self.batch_ix[split_index] > self.split_sizes[split_index] then
     self.batch_ix[split_index] = 1 -- cycle around to beginning
   end
+  
+  local eos = self.vocab_mapping["<eos>"]
+  local sos = self.vocab_mapping["<sos>"]
+  
   -- pull out the correct next batch
-  local ix = self.perm[split_index][self.batch_ix[split_index]]
-  return self.x_batches[split_index][ix], self.y_batches[split_index][ix]
+  local d = self.data[split_index]
+  local batch_size = self.batch_size
+  local len = 0
+  local i = self.perm[split_index][self.batch_ix[split_index]]-1
+  for j=1,batch_size do len = math.max(len, d[self.length_sorted[split_index][i*batch_size+j]]:size(1)+1) end
+  local xbatch = torch.Tensor(batch_size,len):typeAs(d[1]):fill(eos)
+  local ybatch = torch.Tensor(batch_size,len):typeAs(d[1]):fill(eos)
+  for j=1,batch_size do
+    local tmp = d[self.length_sorted[split_index][i*batch_size+j]]
+    xbatch[j]:sub(2,tmp:size(1)+1):copy(tmp)
+    xbatch[j][1] = sos
+    ybatch[j]:sub(1,tmp:size(1)):copy(tmp)
+  end
+
+  return xbatch:t(), ybatch:t()
 end
 
 -- *** STATIC method ***

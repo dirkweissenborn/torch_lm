@@ -183,13 +183,14 @@ local total_cases = 0
 
 function create_decoder_state(x,y,s)
   local _s = s or {}
-  if not _s.x or _s.x:size(1) ~= x:size(1) then
-    _s.x = transfer_data(x)
-    _s.y = transfer_data(y)
+  if not _s.x or _s.x:size(2) ~= x:size(2) then
+    _s.x = transfer_data(torch.Tensor(loader.seq_length, loader.batch_size))
+    _s.y = transfer_data(torch.Tensor(loader.seq_length, loader.batch_size))
   end
-  _s.x:copy(x)
-  _s.y:copy(y)
+  _s.x:sub(1,x:size(1),1,loader.batch_size):copy(x)
+  _s.y:sub(1,y:size(1),1,loader.batch_size):copy(y)
   _s.pos = 0
+  _s.len = x:size(1)
   return _s
 end
 
@@ -232,7 +233,7 @@ local function run_split(split_index)
     local x, y = loader:next_batch(split_index)
     eval_state = create_decoder_state(x, y, eval_state)
     if opt.linewise then decoder:reset() end --if linewise training, then no carrying over of states
-    local len = eval_state.x:size(1)
+    local len = eval_state.len
     total_len = len + total_len
     local l = decoder:fp(eval_state, len)
     loss = loss + l
@@ -325,7 +326,7 @@ function feval(x)
 
   -- forward
   if opt.linewise then decoder:reset() end --if linewise training, then no carrying over of states
-  local len = train_state.x:size(1)
+  local len = train_state.len
   local loss = decoder:fp(train_state, len)
   
   -- backward
@@ -349,7 +350,7 @@ while step < (opt.epochs * epoch_size) do
   step = step + 1
   if opt.weight_decay > 0 then params:mul(1-opt.weight_decay) end
   local _, loss = optim.adam(feval, params, optim_state)
-  local last_len = train_state.x:size(1)
+  local last_len = train_state.len
   local index = (step-1) % opt.checkpoint + 1
   optim_state.losses[index] = loss[1]
   optim_state.lengths[index] = last_len
