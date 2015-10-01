@@ -50,7 +50,7 @@ function SplitLMLinewiseMinibatchLoader.create(data_dir, batch_size, split_fract
   print('loading data files...')
   self.vocab_mapping = torch.load(vocab_file)
   --local data = torch.load(tensor_file)
-  local file = torch.DiskFile(out_tensorfile, 'w')
+  local file = torch.DiskFile(tensor_file, 'r')
   file['binary'](file)
   file:referenced(false)
   local data = file:readObject()
@@ -58,14 +58,15 @@ function SplitLMLinewiseMinibatchLoader.create(data_dir, batch_size, split_fract
   local len = #data
 
   local train_l = math.floor(len * split_fractions[1])
-  local train = {}
+  local train = tds.hash()
   tablex.icopy(train, data, 1, 1, train_l)
   local valid_l = math.floor(len * split_fractions[2])
-  local valid = {}
+  local valid = tds.hash()
   tablex.icopy(valid, data, 1, train_l+1, valid_l)
   local test_l = math.floor(len * split_fractions[3])
-  local test = {}
+  local test
   if test_l > 0 then
+    test = tds.hash()
     tablex.icopy(test, data, 1, train_l+valid_l+1,test_l)
   end
 
@@ -87,10 +88,15 @@ function SplitLMLinewiseMinibatchLoader.create(data_dir, batch_size, split_fract
     local sos = self.vocab_mapping["<sos>"]
     local len = 0
     local tmp = {}
+    local lens = torch.ShortTensor(#d)
+    for i=1,#d do lens[i] = d[i]:size(1) end
+    local _,sorted = torch.sort(lens)
+    lens = nil
+    collectgarbage()
+
     local i = 0
-    for _,data in tablex.sort(d, 
-      function(x,y) return d[x]:size(1) < d[y]:size(1) or (d[x]:size(1) == d[y]:size(1) and x<y) end) do
-      table.insert(tmp,data)
+    for k=1, sorted:size(1) do
+      table.insert(tmp,d[sorted[k]])
       if #tmp == batch_size then
         for j=1,batch_size do len = math.max(len, tmp[j]:size(1)+1) end
         local xbatch = torch.zeros(batch_size,len):fill(eos)
