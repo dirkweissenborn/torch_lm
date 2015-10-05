@@ -1,42 +1,39 @@
-require("models/autoencoder")
+require("models/EncoderDecoder")
 require("setup_cpu")
 local data = require("data")
 
-function check_all_grads(auto_encoder, p)
-  for k, _ in pairs(auto_encoder.paramx) do
-    local b, _, d, dc1, dc2 = check_grad(auto_encoder, k, p)
+function check_all_grads(encdec, p)
+  for k, _ in pairs(encdec.paramx) do
+    local b, _, d, dc1, dc2 = check_grad(encdec, k, p)
     if not b then return b, k, d, dc1, dc2 end
   end
   return true
 end
 
-function check_grad(auto_encoder, k, p)
+function check_grad(encdec, k, p)
   print("Checking " .. k .. "...")
-  local paramx = auto_encoder.paramx[k]
+  local paramx = encdec.paramx[k]
   paramx.paramdx:zero()
   local x = paramx.paramx
   
   local prob = p or math.min(1, 100/x:size(1))
-  
-  local enc = data.convertUTF8("a b. cd.")
-  local dec = data.convertUTF8("a b. cd.")
 
-  local state = auto_encoder:new_state(enc,dec,{[4] = 1})
+  local state = encdec:new_state("a b. cd.", "a b. cd.")
   local length = state.enc.x:size(1)
 
-  auto_encoder.encoder:init_encoders(length)
-  auto_encoder.decoder:init_encoders(length)
-  auto_encoder:reset()
-  auto_encoder:reset_state(state)
+  encdec.encoder:init_encoders(length)
+  encdec.decoder:init_encoders(length)
+  encdec:reset()
+  encdec:reset_state(state)
   -- forward
-  local loss1 = auto_encoder:fp(state, length, length)
-  auto_encoder:reset()
-  auto_encoder:reset_state(state)
-  local loss2 = auto_encoder:fp(state, length, length)
+  local loss1 = encdec:fp(state, length, length)
+  encdec:reset()
+  encdec:reset_state(state)
+  local loss2 = encdec:fp(state, length, length)
   assert(loss1 == loss2, "Something is wrong in forward pass. Losses are not equal.")
   assert(loss1 ~= 0, "Loss should not be zero.")
   -- backward
-  auto_encoder:bp(state, length, length)
+  encdec:bp(state, length, length)
 
   -- compute true gradient:
   local dC = paramx.paramdx
@@ -46,13 +43,13 @@ function check_grad(auto_encoder, k, p)
   for i = 1,dC:size(1) do
     if(torch.bernoulli(prob) == 1) then
       x[i] = x[i] + eps
-      auto_encoder:reset()
-      auto_encoder:reset_state(state)
-      local C1 = auto_encoder:fp(state,length,length)
+      encdec:reset()
+      encdec:reset_state(state)
+      local C1 = encdec:fp(state,length,length)
       x[i] = x[i] - 2 * eps
-      auto_encoder:reset()
-      auto_encoder:reset_state(state)
-      local C2 = auto_encoder:fp(state,length,length)
+      encdec:reset()
+      encdec:reset_state(state)
+      local C2 = encdec:fp(state,length,length)
       x[i] = x[i] + eps
       local dC_est = (C1 - C2) / (2 * eps)
 
@@ -66,22 +63,20 @@ end
 
 function check_example()
   local init_params = {
-    capacity = 1,
+    capacity = 2,
     dropout = 0,
     batch_size = 2,
-    vocab = data.vocab_utf8
+    vocab = data.vocab_utf8,
+    lookup=true,
+    embedding_size=10,
   }
   local enc_layers = {
-    [1] = { layer_type = "LSTMLayer", type = "lstm" },
-    [2] = { layer_type = "RecurrentLayer", type = "gru"},
-    [3] = { layer_type = "LSTMLayer", type = "lstm"}
+    [1] = { layer_type = "LSTMLayer", depth = 3 }
   }
   local dec_layers = {
-    [1] = { layer_type = "RecurrentLayer", type="rnn"  } ,
-    [2] = { layer_type = "LSTMLayer", type="lstm" },
-    [3] = { layer_type = "LSTMLayer", type="lstm" }
+    [1] = { layer_type = "LSTMLayer", depth = 3  } ,
   }
-  local encoder = TextAutoEncoder(init_params, enc_layers, dec_layers)
+  local encoder = EncoderDecoder(init_params, enc_layers, dec_layers)
   encoder.encoder:random_init(0.1)
   encoder.decoder:random_init(0.1)
   return check_all_grads(encoder)

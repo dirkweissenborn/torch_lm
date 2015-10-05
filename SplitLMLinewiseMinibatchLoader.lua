@@ -6,7 +6,7 @@ local tds = require 'tds'
 local SplitLMLinewiseMinibatchLoader = {}
 SplitLMLinewiseMinibatchLoader.__index = SplitLMLinewiseMinibatchLoader
 
-function SplitLMLinewiseMinibatchLoader.create(data_dir, batch_size, split_fractions, words, randomize)
+function SplitLMLinewiseMinibatchLoader.create(data_dir, batch_size, seq_length, split_fractions, random_batches, words)
   -- split_fractions is e.g. {0.9, 0.05, 0.05}
 
   local self = {}
@@ -84,12 +84,20 @@ function SplitLMLinewiseMinibatchLoader.create(data_dir, batch_size, split_fract
   -- self.batches is a table of tensors
   self.batch_size = batch_size
   self.seq_length = 0
-  print('reshaping tensors and sorting by line-length...')
+  print('Sorting by line-length...')
   local function sort_data(d)
     local lens = torch.ShortTensor(#d)
     for i=1,#d do lens[i] = d[i]:size(1) end
     local sorted,sorted_ix = torch.sort(lens)
     self.seq_length = math.max(sorted[sorted:size(1)]+1, self.seq_length)
+    if seq_length > 0 then 
+      --cut sequences that are too long
+      local j = sorted:size(1)
+      while sorted[j] > seq_length do
+        j = j - 1
+      end
+      sorted_ix = sorted_ix:sub(1,j)
+    end  
     lens = nil
     collectgarbage()
     
@@ -112,10 +120,14 @@ function SplitLMLinewiseMinibatchLoader.create(data_dir, batch_size, split_fract
     self.ntest = math.floor(sorted_test:size(1)/batch_size)
   end
 
+  if seq_length > 0 then -- there is a maximum length
+    self.seq_length = math.min(seq_length, self.seq_length)
+  end
+  
   self.split_sizes = { self.ntrain, self.nval, self.ntest }
   self.batch_ix = { 0, 0, 0 }
   self.perm = {}
-  if randomize then
+  if random_batches then
     print('Batches randomized.')
     self.perm[1] = torch.randperm(self.ntrain)
     self.perm[2] = torch.randperm(math.max(1,self.nval))
@@ -138,7 +150,8 @@ function SplitLMLinewiseMinibatchLoader:reset_batch_pointer(split_index, batch_i
   self.batch_ix[split_index] = batch_index
 end
 
-function SplitLMLinewiseMinibatchLoader:next_batch(split_index)
+function SplitLMLinewiseMinibatchLoader:next_batch(split_index, split_symbol) 
+  --split_symbol is used for parallel corpora such as in MT
   if self.split_sizes[split_index] == 0 then
     -- perform a check here to make sure the user isn't screwing something up
     local split_names = { 'train', 'val', 'test' }
@@ -155,21 +168,64 @@ function SplitLMLinewiseMinibatchLoader:next_batch(split_index)
   local sos = self.vocab_mapping["<sos>"]
   
   -- pull out the correct next batch
-  local d = self.data[split_index]
-  local batch_size = self.batch_size
-  local len = 0
+  local data = self.data[split_index]
   local i = self.perm[split_index][self.batch_ix[split_index]]-1
-  for j=1,batch_size do len = math.max(len, d[self.length_sorted[split_index][i*batch_size+j]]:size(1)+1) end
-  local xbatch = torch.Tensor(batch_size,len):typeAs(d[1]):fill(eos)
-  local ybatch = torch.Tensor(batch_size,len):typeAs(d[1]):fill(eos)
+  local batch_size = self.batch_size
+  local len1 = 0
+  local len2 = 0
+  local split_num
+  if split_symbol then split_num = self.vocab_mapping[split_symbol] end
   for j=1,batch_size do
-    local tmp = d[self.length_sorted[split_index][i*batch_size+j]]
-    xbatch[j]:sub(2,tmp:size(1)+1):copy(tmp)
-    xbatch[j][1] = sos
-    ybatch[j]:sub(1,tmp:size(1)):copy(tmp)
+    local d = data[self.length_sorted[split_index][i*batch_size+j]]
+    if split_symbol then
+      local split = 1
+      while split < d:size(1) and d[split] ~= split_num do split = split + 1 end
+      len2 = math.max(len2, d:size(1)-split+1)
+      len1 = math.max(len1, split)
+    else
+      len1 = math.max(len1, d:size(1)+1)
+    end    
   end
-
-  return xbatch:t(), ybatch:t()
+  
+  local xbatch = torch.Tensor(batch_size,len1):typeAs(data[1]):fill(eos)
+  local ybatch = torch.Tensor(batch_size,len1):typeAs(data[1]):fill(eos)
+  local xbatch2, ybatch2
+  if split_symbol then
+    if len2 == 0 then return self:next_batch(split_index, split_symbol) end
+    xbatch2 = torch.Tensor(batch_size,len2):typeAs(data[1]):fill(eos)
+    ybatch2 = torch.Tensor(batch_size,len2):typeAs(data[1]):fill(eos)
+  end  
+  
+  for j=1,batch_size do
+    local d = data[self.length_sorted[split_index][i*batch_size+j]]
+    
+    if split_symbol then
+      local split = 1
+      while split < d:size(1) and d[split] ~= split_num do split = split + 1 end
+      xbatch[j][1] = sos
+      if split>1 then
+        -- first splits should end at end of batch (e.g., in MT, source sentence should end where target begins)
+        -- -> start at len1-split+1
+        xbatch[j]:sub(len1-split+2, len1):copy(d:sub(1,split-1))
+        xbatch[j]:sub(1,len1-split+1):fill(sos)
+        ybatch[j]:sub(1, split-1):copy(d:sub(1,split-1))
+      end
+      xbatch2[j][1] = sos
+      if split+1 <= d:size(1) then
+        xbatch2[j]:sub(2, d:size(1)-split+1):copy(d:sub(split+1,d:size(1)))
+        ybatch2[j]:sub(1, d:size(1)-split):copy(d:sub(split+1,d:size(1)))
+      end
+    else
+      xbatch[j]:sub(2, d:size(1)+1):copy(d)
+      xbatch[j][1] = sos
+      ybatch[j]:sub(1, d:size(1)):copy(d)
+    end
+  end
+  if split_symbol then
+    return xbatch:t(), ybatch:t(), xbatch2:t(), ybatch2:t()
+  else
+    return xbatch:t(), ybatch:t()
+  end
 end
 
 -- *** STATIC method ***
@@ -196,6 +252,7 @@ function SplitLMLinewiseMinibatchLoader.text_to_tensor(in_textfile, out_vocabfil
     else
       if word_split then rawdata = word_split[#word_split] .. rawdata end
       rawdata = stringx.replace(rawdata, '\n', ' <eos> ')
+      rawdata = stringx.replace(rawdata, '\t', ' <split> ')
       word_split = stringx.split(rawdata,' ')
       for i=1, #word_split - 1 do -- do not add last word, because it might got split
       if word_split[i] ~= "" then

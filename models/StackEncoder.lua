@@ -111,18 +111,17 @@ function StackEncoder:layer_capacity(index)
   end
 end
 
-function StackEncoder:new_state(encode, old_state)
+function StackEncoder:new_state(str, old_state)
+  local encode = data.convertChars(str,self.vocab)
   local s = old_state or {}
-  local d_len = encode:size(1)
-  if d_len % (batch_size * seq_length) ~= 0 then
-    encode = encode:sub(1, batch_size * math.floor(d_len / batch_size))
+  s.pos = 0
+  s.x = data.replicate(encode, self.batch_size, s.x)
+  local ydata = encode:clone()
+  if s.x:size(1) > 1 then
+    ydata:sub(1,-2):copy(encode:sub(2,-1))
   end
-  s.x = s.x or encode:view(batch_size, -1)
-  s.x:copy(encode:view(batch_size, -1))
-  s.y = s.y or s.x:clone()
-  s.y:sub(1, -2):copy(s.x:sub(2, -1))
-  s.y[-1] = s.x[1]
-  
+  ydata[-1] = self.vocab['<eos>']
+  s.y = data.replicate(ydata, self.batch_size, s.y)
   return s
 end
 

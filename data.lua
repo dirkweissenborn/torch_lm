@@ -13,8 +13,8 @@ data.params = {
 data.vocab_utf8  = {}
 for i=1,256 do data.vocab_utf8[utf8.char(i)] = i end
 data.vocab_utf8["<unk>"] = 257
-data.vocab_utf8["<sd>"] = 259
-data.vocab_utf8["<ed>"] = 258
+data.vocab_utf8["<sos>"] = 259
+data.vocab_utf8["<eos>"] = 258
 
 
 function data.loadTextUTF8(fname, vocab_map)
@@ -23,8 +23,8 @@ function data.loadTextUTF8(fname, vocab_map)
     if #vocab_map ~= 259 then
       for i=1,256 do vocab_map[utf8.char(i)] = i end
       vocab_map["<unk>"] = 257
-      vocab_map["<sd>"] = 259
-      vocab_map["<ed>"] = 258
+      vocab_map["<sos>"] = 259
+      vocab_map["<eos>"] = 258
     end
     local str = file.read(fname)
     return data.convertUTF8(str), vocab_map
@@ -40,15 +40,16 @@ function data.load(fname, vocab_map, words)
 end
 
 function data.convertChars(str, vocab_map)
-  local x = torch.zeros(#str)
+  local x = torch.zeros(#str+1)
   local vocab_idx = tablex.size(vocab_map)
+  x[1] = vocab_map["<sos>"]
   for i = 1, #str do
     local char = str:sub(i,i)
     if vocab_map[char] == nil then
       vocab_idx = vocab_idx + 1
       vocab_map[char] = vocab_idx
     end
-    x[i] = vocab_map[char]
+    x[i+1] = vocab_map[char]
   end
   return x, vocab_map
 end

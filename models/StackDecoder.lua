@@ -66,20 +66,6 @@ function StackDecoder:new_layer(index, params)
   end
 end
 
-function StackDecoder:new_state(str, old_state)
-  local decode = data.convertChars(str,self.vocab)
-  local s = old_state or {}
-  s.pos = 0
-  s.x = data.replicate(decode, self.batch_size, s.x)
-  local ydata = decode:clone()
-  if s.x:size(1) > 1 then 
-    ydata:sub(1,-2):copy(decode:sub(2,-1))
-  end
-  ydata[-1] = decode[1]
-  s.y = data.replicate(ydata, self.batch_size, s.y)
-  return s
-end
-
 --[[function StackDecoder:run(state, length)
   length = length or 1
   local loss = 0

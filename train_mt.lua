@@ -3,7 +3,7 @@
 require('pl')
 require('optim')
 require('optimize')
-require('models/StackDecoder')
+require('models/EncoderDecoder')
 local util = require('util')
 local data = require('data')
 local model_utils = require('model_utils')
@@ -13,7 +13,7 @@ cmd:text()
 cmd:text('Options')
 cmd:option('-data_dir','','data dir including input.txt')
 cmd:option('-out_dir','#no_output','output of log and models')
-cmd:option('-capacity',246,'capacity of network')
+cmd:option('-capacity',246,'hidden layers capacities of network')
 cmd:option('-type','lstm','type of layers: lstm|gru|rnn')
 cmd:option('-epochs',50,'training epochs')
 cmd:option('-depth',1,'depth of network')
@@ -30,7 +30,6 @@ cmd:option('-overwrite',false, 'overwrite old model')
 cmd:option('-noise_variance',0, 'gaussian noise variance after lookup table')
 cmd:option('-flip_prob',0, 'probability of character flip')
 cmd:option('-lookup',false, 'use lookup instead of one-hot')
-cmd:option('-word_level',false,'train word level model')
 cmd:option('-train_frac',0.9,'fraction of data that goes into train set')
 cmd:option('-val_frac',0.05,'fraction of data that goes into validation set')
 cmd:option('-beta1', 0, 'first order momentum of ADAM (best 0 for character based modeling)')
@@ -39,7 +38,6 @@ cmd:option('-weight_decay', 0, 'decay of weights')
 cmd:option('-embedding_size', 200, 'size of symbol embeddings')
 cmd:option('-layer','lstm',"lstm|gf(gated-feedback)|dg(depth-gated)|grid")
 cmd:option('-repeats', 1, 'repeat each symbol how many times.')
-cmd:option('-linewise', false, 'train linewise, in contrast to training on continuously on input text.')
 cmd:option('-randomize', false, 'randomize linewise input.')
 
 cmd:text()
@@ -55,15 +53,9 @@ else require("setup_cpu") end
 local test_frac = math.max(0, 1 - (opt.train_frac + opt.val_frac))
 local split_sizes = {opt.train_frac, opt.val_frac, test_frac}
 
-local batchloader
-local loader
-if opt.linewise then
-  batchloader = require('SplitLMLinewiseMinibatchLoader')
-  loader = batchloader.create(opt.data_dir, opt.batch_size, opt.seq_length, split_sizes, opt.word_level, opt.randomize)
-else
-  batchloader = require('SplitLMMinibatchLoader')
-  loader = batchloader.create(opt.data_dir, opt.batch_size, opt.seq_length, split_sizes, opt.word_level)
-end
+local batchloader = require('SplitLMLinewiseMinibatchLoader')
+local loader = batchloader.create(opt.data_dir, opt.batch_size, opt.seq_length, split_sizes, opt.randomize)
+
 opt.vocab = loader.vocab_mapping
 print("Vocab size: " .. tablex.size(loader.vocab_mapping))
 
@@ -92,12 +84,11 @@ else
     end
   --end
 end
-opt.layers = ls
 
 ----------  Model & Data Setup -----------------
 print("Setup. Can take a while ... ")
 
-local decoder = StackDecoder(opt)
+local enc_dec = EncoderDecoder(opt,ls,ls)
 
 -- setup training data
 local total_length = loader.ntrain * opt.seq_length
@@ -126,8 +117,8 @@ if opt.out_dir ~= "#no_output" then
 
   if not opt.overwrite then
     -- load old model
-    decoder:load(model_file)
-    for k,v in pairs(decoder:params()) do if opt[k] and k ~= "layers" then opt[k] = v end end
+    enc_dec:load(model_file)
+    for k,v in pairs(enc_dec:params()) do if opt[k] and k ~= "layers" then opt[k] = v end end
 
     -- set current step to last step in old log
     local log_lines = stringx.split(file.read(log_file),"\n")
@@ -148,13 +139,13 @@ if opt.out_dir ~= "#no_output" then
     log:write(table.concat(log_lines,"\n"))
   else 
     log = io.open(log_file,"w")
-    log:write("Character LM Training")
+    log:write("MT Training")
   end
 else
   opt.overwrite = true
 end
 
-for _,v in pairs(decoder.paramx) do num_params = num_params + v.paramx:size(1) end
+for _,v in pairs(enc_dec.paramx) do num_params = num_params + v.paramx:size(1) end
 
 if opt.overwrite then
   optim_state.losses = {}
@@ -194,73 +185,36 @@ function create_decoder_state(x,y,s)
   return _s
 end
 
-local start_ss = {}
-for k,l in pairs(decoder.layers) do
-  if l.start_s then
-    if type(l.start_s) == "table" then
-      start_ss[k] = tablex.map(function(t) return t:clone() end, l.start_s)
-    else start_ss[k] = l.start_s:clone() end
-  end
+function create_encdec_state(enc_x,enc_y,dec_x, dec_y,s)
+  local _s = s or {enc={},dec={} }
+  _s.enc = create_decoder_state(enc_x, enc_y, _s.enc)
+  _s.dec = create_decoder_state(dec_x, dec_y, _s.dec)
+  return _s
 end
 
 local rev_vocab = {}
-for k,v in pairs(decoder.vocab) do rev_vocab[v] = k end
+for k,v in pairs(enc_dec.encoder.vocab) do rev_vocab[v] = k end
 local eval_state
 local function run_split(split_index)
-  -- save current start_s, and set start_s to zero
-  if not opt.linewise then
-    for k,l in pairs(decoder.layers) do
-      if l.start_s then
-        if type(l.start_s) == "table" then 
-          util.replace_table(start_ss[k], l.start_s)
-          util.zero_table(l.start_s)
-        else 
-          start_ss[k]:resizeAs(l.start_s):copy(l.start_s)
-          l.start_s:zero()
-        end
-      end
-    end
-  end
   -- run
-  decoder:disable_training()
+  enc_dec:disable_training()
   local loss = 0
-  local words = 0
   local n = loader.split_sizes[split_index]
   
   loader:reset_batch_pointer(split_index)
   local total_len = 0
   for i = 1, n do
-    local x, y = loader:next_batch(split_index)
-    eval_state = create_decoder_state(x, y, eval_state)
-    if opt.linewise then decoder:reset() end --if linewise training, then no carrying over of states
-    local len = eval_state.len
+    local enc_x, enc_y, dec_x, dec_y = loader:next_batch(split_index,'\t')
+    eval_state = create_encdec_state(enc_x, enc_y, dec_x, dec_y, eval_state)
+    enc_dec:reset()
+    local len = eval_state.dec.len
     total_len = len + total_len
-    local l = decoder:fp(eval_state, len)
+    local l = enc_dec:fp(eval_state, eval_state.enc.len, eval_state.dec.len)
     loss = loss + l
-    if not opt.word_level then 
-      for i = 0, len-1 do
-        if rev_vocab[eval_state.x[eval_state.pos-i][1]]:match("%s") then
-          words = words + 1
-        end
-      end
-    else 
-      words = words + len
-    end
   end
-  local word_loss = loss / words
   loss = loss / total_len
-
-  -- reset to previous start_s
-  if not opt.linewise then
-    for k,l in pairs(decoder.layers) do
-      if l.start_s then
-        if type(l.start_s) == "table" then util.replace_table(l.start_s, start_ss[k])
-        else l.start_s:copy(start_ss[k]) end
-      end
-    end
-  end
   
-  return loss, word_loss
+  return loss
 end
 
 optim_state.valid_loss = optim_state.valid_loss or 1e10
@@ -283,7 +237,7 @@ local function run_checkpoint()
           util.f3(epoch) .. "\t" .. 
           util.f3(train_loss) .. "\t" .. util.f3(loss))
 
-      decoder:save(model_file)
+      enc_dec:save(model_file)
       optim_state.batch_ix = loader.batch_ix[1]
       optim_state.step = step
       optim_state.time = torch.toc(beginning_time)
@@ -305,32 +259,34 @@ end
 ---------- Training Closure -------------
 
 local params, grad_params =
-  model_utils.combine_all_parameters(unpack(tablex.map(function(l) return l.core_encoder end, decoder.layers)))
+  model_utils.combine_all_parameters(unpack(tablex.map(function(l) return l.core_encoder end, enc_dec.encoder.layers)),
+    unpack(tablex.map(function(l) return l.core_encoder end, enc_dec.decoder.layers)))
 
 if opt.overwrite then params:uniform(-0.08, 0.08) end
 
 -- init encoders and decoders
 print("Creating decoders: " .. loader.seq_length .. "...")
-decoder:init_encoders(loader.seq_length)
+enc_dec.encoder:init_encoders(loader.seq_length)
+enc_dec.decoder:init_encoders(loader.seq_length)
 local last_loss = 0
 local train_state
 function feval(x)
-  decoder:enable_training()
+  enc_dec:enable_training()
 
   if x ~= params then params:copy(x) end
   grad_params:zero()
 
   ------------------ get minibatch -------------------
-  local x, y = loader:next_batch(1)
-  train_state = create_decoder_state(x,y,train_state)
+  local enc_x, enc_y, dec_x, dec_y = loader:next_batch(1,'\t')
+  train_state = create_encdec_state(enc_x, enc_y, dec_x, dec_y, train_state)
 
   -- forward
-  if opt.linewise then decoder:reset() end --if linewise training, then no carrying over of states
-  local len = train_state.len
-  local loss = decoder:fp(train_state, len)
+  if opt.linewise then enc_dec:reset() end --if linewise training, then no carrying over of states
+  local len = train_state.dec.len
+  local loss = enc_dec:fp(train_state, train_state.enc.len, train_state.dec.len)
   
   -- backward
-  decoder:bp(train_state, len)
+  enc_dec:bp(train_state, train_state.enc.len, train_state.dec.len)
   
   -- clip gradient element-wise
   grad_params:clamp(-5, 5)
@@ -350,7 +306,7 @@ while step < (opt.epochs * epoch_size) do
   step = step + 1
   if opt.weight_decay > 0 then params:mul(1-opt.weight_decay) end
   local _, loss = optim.adam(feval, params, optim_state)
-  local last_len = train_state.len
+  local last_len = train_state.dec.len
   local index = (step-1) % opt.checkpoint + 1
   optim_state.losses[index] = loss[1]
   optim_state.lengths[index] = last_len
@@ -383,20 +339,14 @@ end
 run_checkpoint()
 
 if test_frac > 0 then
-  if log then decoder:load(model_file) end --load best model
-  decoder:setup(1)
-  if opt.linewise then
-    loader = batchloader.create(opt.data_dir, 1,  opt.seq_length, split_sizes, opt.word_level, opt.randomize)
-  else
-    loader = batchloader.create(opt.data_dir, 1, opt.seq_length, split_sizes, opt.word_level)
-  end
-  local loss,loss_words = run_split(3)
+  if log then enc_dec:load(model_file) end --load best model
+  enc_dec:setup(1)
+  loader = batchloader.create(opt.data_dir, 1, opt.seq_length, split_sizes, opt.randomize)
+  local loss = run_split(3)
   print("Test set perplexity : " .. util.f3(torch.exp(loss)))
-  print("Test set perplexity (words) : " .. util.f3(torch.exp(loss_words)))
   append_to_log("Loss on test: " .. util.f3(loss))
-  append_to_log("Loss on test (words): " .. util.f3(loss_words))
 end
 
 if log then io.close(log) end
 
-return decoder
+return enc_dec

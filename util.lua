@@ -28,7 +28,6 @@ function util.enable_training(node)
   end
 end
 
-
 function util.cloneManyTimes_mt(net, T)
   require('torch')
   require('nngraph')
