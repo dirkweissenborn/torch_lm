@@ -94,10 +94,10 @@ end
 
 function beam_search_encdec(encdec, str, n, l)
   encdec:disable_training()
-  if encdec.batch_size > 1 then encdec:setup(1) end
+  if encdec.decoder.batch_size > 1 then encdec:setup(1) end
   encdec:reset()
-  local state = encdec:new_state(str)
-  encdec:fp(state, state.enc.x:size(1),0)
+  local state = encdec:new_state(str,"")
+  encdec:fp(state, state.enc.x:size(1),1)
   local decoder = encdec.decoder
 
   local rev_vocab = {}
