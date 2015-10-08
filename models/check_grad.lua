@@ -1,4 +1,4 @@
-require("models/EncoderDecoder")
+require("models/AttentionEncoderDecoder")
 require("setup_cpu")
 local data = require("data")
 
@@ -18,22 +18,21 @@ function check_grad(encdec, k, p)
   
   local prob = p or math.min(1, 100/x:size(1))
 
-  local state = encdec:new_state("a b. cd.", "a b. cd.")
+  local state = encdec:new_state("a b. cd.", "a b. cd")
   local length = state.enc.x:size(1)
-
   encdec.encoder:init_encoders(length)
-  encdec.decoder:init_encoders(length)
+  encdec.decoder:init_encoders(length-1)
   encdec:reset()
   encdec:reset_state(state)
   -- forward
-  local loss1 = encdec:fp(state, length, length)
+  local loss1 = encdec:fp(state, length, length-1)
   encdec:reset()
   encdec:reset_state(state)
-  local loss2 = encdec:fp(state, length, length)
-  assert(loss1 == loss2, "Something is wrong in forward pass. Losses are not equal.")
+  local loss2 = encdec:fp(state, length, length-1)
+  assert(loss1 == loss2, "Something is wrong in forward pass. Losses are not equal. " .. loss1 .. "  -  " .. loss2)
   assert(loss1 ~= 0, "Loss should not be zero.")
   -- backward
-  encdec:bp(state, length, length)
+  encdec:bp(state, length, length-1)
 
   -- compute true gradient:
   local dC = paramx.paramdx
@@ -45,11 +44,11 @@ function check_grad(encdec, k, p)
       x[i] = x[i] + eps
       encdec:reset()
       encdec:reset_state(state)
-      local C1 = encdec:fp(state,length,length)
+      local C1 = encdec:fp(state,length,length-1)
       x[i] = x[i] - 2 * eps
       encdec:reset()
       encdec:reset_state(state)
-      local C2 = encdec:fp(state,length,length)
+      local C2 = encdec:fp(state,length,length-1)
       x[i] = x[i] + eps
       local dC_est = (C1 - C2) / (2 * eps)
 
@@ -71,12 +70,14 @@ function check_example()
     embedding_size=10,
   }
   local enc_layers = {
-    [1] = { layer_type = "LSTMLayer", depth = 3 }
+    [1] = { layer_type = "LSTMLayer", depth = 3 },
+    [2] = { layer_type = "AttentionSkipLayer", skip = 2 }
   }
   local dec_layers = {
-    [1] = { layer_type = "LSTMLayer", depth = 3  } ,
+    [1] = { layer_type = "AttentionLSTMLayer", attention_capacity = 2, depth = 3  } ,
   }
-  local encoder = EncoderDecoder(init_params, enc_layers, dec_layers)
+  local encoder = AttentionEncoderDecoder(init_params, enc_layers, dec_layers)
+  encoder:setup()
   encoder.encoder:random_init(0.1)
   encoder.decoder:random_init(0.1)
   return check_all_grads(encoder)

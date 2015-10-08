@@ -3,7 +3,7 @@
 require('pl')
 require('optim')
 require('optimize')
-require('models/EncoderDecoder')
+require('models/AttentionEncoderDecoder')
 local util = require('util')
 local data = require('data')
 local model_utils = require('model_utils')
@@ -88,7 +88,9 @@ end
 ----------  Model & Data Setup -----------------
 print("Setup. Can take a while ... ")
 
-local enc_dec = EncoderDecoder(opt,ls,ls)
+table.insert(ls, {layer_type = "AttentionSkipLayer", skip = 5})
+local enc_dec = AttentionEncoderDecoder(opt,ls,{ 
+  [1] = {layer_type = "AttentionLSTMLayer", attention_capacity = opt.capacity, depth = opt.depth} })
 
 -- setup training data
 local total_length = loader.ntrain * opt.seq_length
@@ -332,7 +334,9 @@ while step < (opt.epochs * epoch_size) do
         ', grad/params norm = ' .. util.f3(norm_dw) ..
         ', since beginning = ' .. since_beginning .. ' mins.')
   end
-
+  if step % 30 then
+    collectgarbage()
+  end
   if step % opt.checkpoint == 0 then run_checkpoint() end
 end
 

@@ -1,10 +1,11 @@
 require('models/LSTMLayer')
+require('models/AttentionLSTMLayer')
 --require('models/RepeatLSTMLayer')
 require('models/DepthGatedLSTMLayer')
 require('models/GatedFeedbackLSTMLayer')
 require('models/RecurrentLayer')
 require('models/LookupLayer')
---require('models/ConditionalLayer')
+require('models/AttentionSkipLayer')
 --require('models/SkipLayer')
 require('models/OneHotLayer')
 require('models/TanhLayer')
@@ -28,8 +29,12 @@ function StackEncoder:new_layer(index, params)
     l =  TanhLayer(params)
   elseif params.layer_type == 'LSTMLayer' then
     l = LSTMLayer(params)
- -- elseif params.layer_type == 'RepeatLSTMLayer' then
- --   l = RepeatLSTMLayer(params)
+  elseif params.layer_type == 'AttentionLSTMLayer' then
+    params.batch_size = self.batch_size
+    l = AttentionLSTMLayer(params)
+  elseif params.layer_type == 'AttentionSkipLayer' then
+    params.batch_size = self.batch_size
+    l = AttentionSkipLayer(params)
   elseif params.layer_type == 'GatedFeedbackLSTMLayer' then
     l = GatedFeedbackLSTMLayer(params)
   elseif params.layer_type == 'RevGatedFeedbackLSTMLayer' then
@@ -37,12 +42,6 @@ function StackEncoder:new_layer(index, params)
   elseif params.layer_type == 'DepthGatedLSTMLayer' then
     l = DepthGatedLSTMLayer(params)
   end
-
-  --if params.condition then
-  --  l = ConditionalLayer(l,params.condition)
-  --elseif params.skip then
-  --  l = SkipLayer(l,params.skip)
-  --end
   
   return l
 end
@@ -91,7 +90,7 @@ function StackEncoder:__init(params)
 end
 
 function StackEncoder:init_encoders(max_num)
-  for _,l in pairs(self.layers) do l:encoder(max_num) end
+  for _,l in pairs(self.layers) do l:init_encoders(max_num) end
 end
 
 function StackEncoder:random_init(init_weight)
@@ -163,7 +162,6 @@ function StackEncoder:bp(state, length)
   end
 
   state.pos = (state.pos + length - 1) % state.x:size(1) + 1
-
 end
 
 function StackEncoder:setup(batch_size)

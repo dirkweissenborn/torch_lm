@@ -12,7 +12,6 @@ function EncoderDecoder:__init(params, enc_layers, dec_layers)
   if enc_layers then enc_params.layers = enc_layers end
   if dec_layers then dec_params.layers = dec_layers end
 
-  assert(enc_layers == nil or #enc_params.layers <= #dec_params.layers)
   self.encoder = StackEncoder(enc_params)
   self.decoder = StackDecoder(dec_params)
 
@@ -79,7 +78,7 @@ function EncoderDecoder:fp(state, enc_length, dec_length)
         if d > 0 then
           util.add_table(d_l.s[d], e_l.s[e]) 
         else 
-          assert(d_l.start_s, "Tying to copy state from encoder to start state of decoder, which decoder doesn't have!")
+          assert(d_l.start_s, "Trying to copy state from encoder to start state of decoder, which decoder doesn't have!")
           util.add_table(d_l.start_s, e_l.s[e])  
         end
       end

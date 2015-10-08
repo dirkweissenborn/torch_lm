@@ -129,3 +129,5 @@ function BaseEncoderLayer:enable_training()
     for _,e in pairs(self.encoders) do e:training() end
   end
 end
+
+function BaseEncoderLayer:init_encoders(max_num) self:encoder(max_num) end

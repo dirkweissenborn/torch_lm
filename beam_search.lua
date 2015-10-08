@@ -92,12 +92,13 @@ function next_word(decoder, str, n, max_l)
   return str .. split[1] .. " "
 end
 
-function beam_search_encdec(encdec, str, n, l)
+function beam_search_encdec(encdec, enc_str, n, l, dec_pref)
   encdec:disable_training()
   if encdec.decoder.batch_size > 1 then encdec:setup(1) end
   encdec:reset()
-  local state = encdec:new_state(str,"")
-  encdec:fp(state, state.enc.x:size(1),1)
+  dec_pref = dec_pref or ""
+  local state = encdec:new_state(enc_str,dec_pref)
+  encdec:fp(state, state.enc.x:size(1),state.dec.x:size(1))
   local decoder = encdec.decoder
 
   local rev_vocab = {}
@@ -119,7 +120,7 @@ function beam_search_encdec(encdec, str, n, l)
   local s = copy_s()
 
   local beam = {}
-  local p = decoder.layers[#decoder.layers].out_s[1]
+  local p = decoder.layers[#decoder.layers].out_s[state.dec.x:size(1)]
   local y, ix = torch.sort(p[1],1,true)
 
   for i = 1, math.min(n, p[1]:size(1)) do
@@ -133,8 +134,9 @@ function beam_search_encdec(encdec, str, n, l)
     end
   end
 
-  local input = decoder:new_state(" ")
+  local input = decoder:new_state("")
 
+  p = decoder.layers[#decoder.layers].out_s[1]
   for j = 2, l do
     local new_beam = {}
     for i= 1,  #beam do
