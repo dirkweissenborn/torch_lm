@@ -64,20 +64,19 @@ function check_example()
   local init_params = {
     capacity = 2,
     dropout = 0,
-    batch_size = 2,
+    batch_size = 1,
     vocab = data.vocab_utf8,
     lookup=true,
     embedding_size=10,
   }
   local enc_layers = {
-    [1] = { layer_type = "LSTMLayer", depth = 3 },
-    [2] = { layer_type = "AttentionSkipLayer", skip = 2 }
+    [1] = { layer_type = "LSTMLayer", depth = 2 },
+   -- [2] = { layer_type = "AttentionSkipLayer", skip = 2 }
   }
   local dec_layers = {
-    [1] = { layer_type = "AttentionLSTMLayer", attention_capacity = 2, depth = 3  } ,
+    [1] = { layer_type = "AttentionLSTMLayer", attention_capacity = 2, depth = 2  } ,
   }
   local encoder = AttentionEncoderDecoder(init_params, enc_layers, dec_layers)
-  encoder:setup()
   encoder.encoder:random_init(0.1)
   encoder.decoder:random_init(0.1)
   return check_all_grads(encoder)

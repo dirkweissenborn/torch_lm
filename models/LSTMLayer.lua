@@ -1,5 +1,6 @@
 require("models/BaseEncoderLayer")
 require("models/BPDropout")
+local util  = require("util")
 local LSTMLayer = torch.class('LSTMLayer', 'BaseEncoderLayer')
 
 function LSTMLayer:__init(params)

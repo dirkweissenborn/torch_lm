@@ -36,9 +36,7 @@ local loader = SplitLMMinibatchLoader.create(opt.data_dir,
   opt.batch_size, opt.seq_length, {(1-opt.test_frac)/2, (1-opt.test_frac)/2, opt.test_frac}, opt.word_level)
 
 --ST params
-
-local params, grad_params =
-model_utils.combine_all_parameters(unpack(tablex.map(function(l) return l.core_encoder end, decoder.layers)))
+local params, grad_params = model_utils.combine_all_parameters(decoder:networks())
 local st_params, lt_params, optim_state
 if opt.stp_lr > 0 then
   st_params  =params:clone():zero()

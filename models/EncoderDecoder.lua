@@ -84,7 +84,7 @@ function EncoderDecoder:fp(state, enc_length, dec_length)
       end
     end
   end
-
+  
   return self.decoder:fp(state.dec, dec_length, true)
 end
 
@@ -134,4 +134,11 @@ end
 function EncoderDecoder:enable_training()
   self.encoder:enable_training()
   self.decoder:enable_training()
+end
+
+function EncoderDecoder:networks(networks)
+  networks = networks or {}
+  self.encoder:networks(networks)
+  self.decoder:networks(networks)
+  return networks
 end

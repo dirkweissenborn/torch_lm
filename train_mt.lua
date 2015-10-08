@@ -259,10 +259,7 @@ local function run_checkpoint()
 end
 
 ---------- Training Closure -------------
-
-local params, grad_params =
-  model_utils.combine_all_parameters(unpack(tablex.map(function(l) return l.core_encoder end, enc_dec.encoder.layers)),
-    unpack(tablex.map(function(l) return l.core_encoder end, enc_dec.decoder.layers)))
+local params, grad_params = model_utils.combine_all_parameters(enc_dec:networks())
 
 if opt.overwrite then params:uniform(-0.08, 0.08) end
 

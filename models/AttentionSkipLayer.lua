@@ -16,7 +16,7 @@ end
 function AttentionSkipLayer:create_encoder()
   local to_attend    = nn.Identity()() -- 3D: batch x length x capacity
   local proj         = nn.MultiLinear(self.in_capacity, 1)(to_attend) -- 3D: batch x length x 1
-  self.view1          = nn.View(self.batch_size,-1) -- batch x length
+  self.view1         = nn.View(self.batch_size,-1) -- batch x length
   local attention_w  = nn.SoftMax()(self.view1(proj)) -- batch x length
   self.view2         = nn.View(self.batch_size,-1,1)
   attention_w        = self.view2(attention_w) -- batch x length x 1

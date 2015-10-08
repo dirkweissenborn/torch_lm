@@ -1,4 +1,4 @@
-util = {}
+local util = {}
 
 function util.disable_training(node)
   if type(node) == "table" and node.__typename == nil then

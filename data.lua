@@ -2,36 +2,12 @@ require('pl')
 utf8 = require 'lua-utf8'
 
 local data = {}
-
-data.params = {
-  num_chars = 257, --256+1 for unknown
-  num_chars_extended = 259, -- +start and end decoding
-  start_decoding = 259,
-  end_decoding = 258
-}
-
 data.vocab_utf8  = {}
 for i=1,256 do data.vocab_utf8[utf8.char(i)] = i end
 data.vocab_utf8["<unk>"] = 257
 data.vocab_utf8["<sos>"] = 259
 data.vocab_utf8["<eos>"] = 258
 
-
-function data.loadTextUTF8(fname, vocab_map)
-  if path.exists(fname) then
-    vocab_map  = vocab_map or {}
-    if #vocab_map ~= 259 then
-      for i=1,256 do vocab_map[utf8.char(i)] = i end
-      vocab_map["<unk>"] = 257
-      vocab_map["<sos>"] = 259
-      vocab_map["<eos>"] = 258
-    end
-    local str = file.read(fname)
-    return data.convertUTF8(str), vocab_map
-  else 
-    return nil 
-  end  
-end
 
 function data.load(fname, vocab_map, words)
   local str = file.read(fname)
@@ -68,38 +44,6 @@ function data.convertWords(str, vocab_map)
     x[i] = vocab_map[str[i]]
   end
   return x, vocab_map
-end
-
-function data.convertUTF8(str, with_start)
-  local length = 0
-  for _,_ in utf8.codes(str) do length = length + 1 end
-  --print(string.format("Loading... size of data = %d", length))
-  if with_start then length = length + 2 end
-  local x = torch.zeros(length)
-  local i = 1
-  if with_start then 
-    i = 2
-    x[1] = data_params.start_decoding
-  end
-  for _,c in utf8.codes(str) do
-    if c > 256 then x[i] = 257
-    else x[i] = c end
-    i = i+1
-  end
-  if with_start then x[i] = data_params.end_decoding end
-  return transfer_data(x)
-end
-
-function data.convertToUTF8(x)
-  local res = {}
-  for i=1,x:size(1) do
-    table.insert(res,utf8.char(x[i]))
-  end
-  return table.concat(res)
-end
-
-function data.convertNumToUTF8(x)
-  return utf8.char(x)
 end
 
 function data.replicate(x_inp, batch_size, x_old)

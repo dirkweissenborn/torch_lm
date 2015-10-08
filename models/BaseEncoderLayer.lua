@@ -130,4 +130,12 @@ function BaseEncoderLayer:enable_training()
   end
 end
 
-function BaseEncoderLayer:init_encoders(max_num) self:encoder(max_num) end
+function BaseEncoderLayer:init_encoders(max_num) 
+  self:encoder(max_num) 
+end
+
+function BaseEncoderLayer:networks(networks)
+  networks = networks or {}
+  table.insert(networks,self.core_encoder)
+  return networks
+end

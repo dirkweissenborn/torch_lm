@@ -303,6 +303,7 @@ local function run_checkpoint()
 end
 
 ---------- Training Closure -------------
+local params, grad_params = model_utils.combine_all_parameters(decoder:networks())
 
 local params, grad_params =
   model_utils.combine_all_parameters(unpack(tablex.map(function(l) return l.core_encoder end, decoder.layers)))

@@ -5,16 +5,10 @@ require("nn")
 
 local MultiLinear, parent = torch.class('nn.MultiLinear', 'nn.Module')
 
---HACK, caching output given input by parameters storage pointer 
--- (caching here is important for example for attention, see AttentionLSTMLayer.lua)
-local cached_input = {}
-local cached_output = {}
-
-function MultiLinear:__init(in_size, out_size, cache)
+function MultiLinear:__init(in_size, out_size)
   parent.__init(self)
   self.out_size = out_size
   self.in_size = in_size
-  self.cache = cache or true
   self.weight = torch.Tensor():resize(self.in_size, self.out_size)
   self.gradWeight = torch.Tensor():resize(self.in_size, self.out_size)
 end
@@ -23,26 +17,17 @@ function MultiLinear:updateOutput(input)
   local batch_size = input:size(1)
   local multi_size = input:size(2)
   self.outBuff  = self.outBuff or torch.Tensor():typeAs(input):resize(batch_size, multi_size, self.out_size)
+  if self.outBuff:size(1) < batch_size then --inc buffer
+    self.outBuff:resize(batch_size, self.buff:size(2), self.out_size)
+  end
   if self.outBuff:size(2) < multi_size then --inc buffer
     self.outBuff:resize(batch_size, math.floor(1.5 * multi_size), self.out_size)
   end
   self.output = self.output or torch.Tensor():typeAs(self.outBuff)
   self.output:set(self.outBuff)
   self.output:resize(batch_size, multi_size, self.out_size)
-  local storage_p = torch.pointer(self.weight:storage())
-  if not self.cache or input ~= cached_input[storage_p] then
-    self.weight = self.weight or torch.Tensor():typeAs(input):resize(1,self.in_size, self.out_size)
-    local expand = self.weight:view(1, self.in_size, self.out_size):expand(batch_size, self.in_size, self.out_size)
-    torch.bmm(self.output, input, expand)
-
-    if self.cache then 
-      cached_output[storage_p] = self.output
-      cached_input[storage_p] = input
-    end
-  else
-    self.output:copy(cached_output[storage_p])
-  end  
-
+  local expand = self.weight:view(1, self.in_size, self.out_size):expand(batch_size, self.in_size, self.out_size)
+  torch.bmm(self.output, input, expand)
   return self.output
 end
 
@@ -50,22 +35,21 @@ function MultiLinear:updateGradInput(input, gradOutput)
   local batch_size = input:size(1)
   local multi_size = input:size(2)
 
-  self.gradInputBuff  = self.gradInputBuff or torch.Tensor():typeAs(input):resize(batch_size, multi_size, self.in_size)
-  if not self.gradInputBuff:size(2) or input:size(2) > self.gradInputBuff:size(2) then
-    self.gradInputBuff:resize(batch_size,math.floor(1.5 * multi_size), self.in_size)
-    self.gradInputBuff:zero()
+  self.buff  = self.buff or torch.Tensor():typeAs(input):resize(batch_size, multi_size, self.in_size)
+  if batch_size > self.buff:size(1) then
+    self.buff:resize(batch_size, self.buff:size(2), self.in_size)
   end
+  if not self.buff:size(2) or multi_size > self.buff:size(2) then
+    self.buff:resize(batch_size,math.floor(1.5 * multi_size), self.in_size)
+  end
+  self.buff:zero()
+
   local expand = self.weight:view(1, self.in_size, self.out_size):expand(input:size(1), self.in_size, self.out_size)
-  self.gradInput = self.gradInput or torch.Tensor():typeAs(self.gradInputBuff)
-  self.gradInput:set(self.gradInputBuff)
+  self.gradInput = self.gradInput or torch.Tensor():typeAs(self.buff)
+  self.gradInput:set(self.buff)
   self.gradInput:resize(batch_size, multi_size, self.in_size):zero()
   self.gradInput:baddbmm(gradOutput, expand:transpose(2,3))
 
-  --clear cache
-  local storage_p = torch.pointer(self.weight:storage())
-  cached_input[storage_p] = nil
-  cached_output[storage_p] = nil
-  
   return self.gradInput
 end
 

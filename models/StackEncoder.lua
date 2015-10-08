@@ -95,8 +95,8 @@ end
 
 function StackEncoder:random_init(init_weight)
   init_weight = init_weight or 0.08
-  for _,p in pairs(self.paramx) do 
-    p.paramx:uniform(-init_weight,init_weight)
+  for _, n in pairs(self:networks()) do
+    n:getParameters():uniform(-init_weight,init_weight)
   end
 end
 
@@ -228,4 +228,10 @@ end
 function StackEncoder:enable_training()
   self.train = true
   for _, l in pairs(self.layers) do l:enable_training() end
+end
+
+function StackEncoder:networks(networks)
+  networks = networks or {}
+  for _, l in pairs(self.layers) do l:networks(networks) end
+  return networks
 end
