@@ -21,6 +21,7 @@ function data.convertChars(str, vocab_map)
   x[1] = vocab_map["<sos>"]
   for i = 1, #str do
     local char = str:sub(i,i)
+    if char == "\n" then char = "<eos>" end
     if vocab_map[char] == nil then
       vocab_idx = vocab_idx + 1
       vocab_map[char] = vocab_idx

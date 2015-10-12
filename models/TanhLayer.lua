@@ -16,6 +16,7 @@ function TanhLayer:create_encoder()
 end
 
 function TanhLayer:fp(prev_l, next_l, length, state)
+  self.last_length = length
   for i = 1, length do
     local encoder = self:encoder(i)
     local out = encoder:forward(prev_l.out_s[i])
@@ -24,7 +25,7 @@ function TanhLayer:fp(prev_l, next_l, length, state)
   return 0
 end
 
-function TanhLayer:bp(prev_l, next_l, length, state)
+function TanhLayer:bp(prev_l, next_l, state)
   for i = length,1,-1 do
     local encoder = self:encoder(i)
     local in_ds = encoder:backward(prev_l.out_s[i], self.out_ds[i])

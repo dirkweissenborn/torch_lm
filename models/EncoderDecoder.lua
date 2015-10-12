@@ -14,16 +14,6 @@ function EncoderDecoder:__init(params, enc_layers, dec_layers)
 
   self.encoder = StackEncoder(enc_params)
   self.decoder = StackDecoder(dec_params)
-
-  self.paramx = {}
-  if self.encoder.paramx then
-    for k,v in pairs(self.encoder.paramx) do
-      self.paramx["encoder-" .. k] = v
-    end
-    for k,v in pairs(self.decoder.paramx) do
-      self.paramx["decoder-" .. k] = v
-    end
-  end
 end
 
 function EncoderDecoder:new_state(encode, decode, mapping, old_s)
@@ -51,23 +41,23 @@ end
 
 function EncoderDecoder:run(state)
   self:disable_training()
-  local perp = 0
+  local loss = 0
   reset_state(state)
   while state.enc.pos < state.enc:size(1) do
-    local p1 = self:fp(state,state.enc.x:size(1),state.dec.x:size(1))
-    perp = perp + p1
+    local l = self:fp(state,state.enc.x:size(1),state.dec.x:size(1))
+    loss = loss + l
   end
   self:enable_training()
-  return perp
+  return loss
 end
 
 function EncoderDecoder:fp(state, enc_length, dec_length)
   self:reset_s()
-  local off_enc = state.enc.pos
-  local off_dec = state.dec.pos
-  local mapping = state.map or {[enc_length]=0}
+  --local off_enc = state.enc.pos
+  --local off_dec = state.dec.pos
+  --local mapping = state.map or {[enc_length]=0}
   self.encoder:fp(state.enc, enc_length, true)
-  for i = off_enc+1,state.enc.pos do
+  --[[for i = off_enc+1,state.enc.pos do
     local d = mapping[i]
     if d then
       d = d - off_dec
@@ -83,14 +73,21 @@ function EncoderDecoder:fp(state, enc_length, dec_length)
         end
       end
     end
+  end--]]
+  for l=1, #self.encoder.layers do
+    local e_l = self.encoder.layers[l]
+    local d_l = self.decoder.layers[l]
+    assert(d_l.start_s, "Trying to copy state from encoder to start state of decoder, which decoder doesn't have!")
+    local last_length = e_l.last_length or enc_length
+    util.add_table(d_l.start_s, e_l.s[last_length])
   end
-  
+
   return self.decoder:fp(state.dec, dec_length, true)
 end
 
 function EncoderDecoder:bp(state, enc_length, dec_length)
   self.decoder:bp(state.dec, dec_length)
-  local off_enc = state.enc.pos-enc_length
+  --[[local off_enc = state.enc.pos-enc_length
   local off_dec = state.dec.pos-dec_length
   local mapping = state.map or {[enc_length]=0}
   for i = off_enc+1,state.enc.pos do
@@ -104,6 +101,12 @@ function EncoderDecoder:bp(state, enc_length, dec_length)
         util.add_table(e_l.ds[e], d_l.ds[d])
       end
     end
+  end--]]
+  for l=1, #self.encoder.layers do
+    local e_l = self.encoder.layers[l]
+    local d_l = self.decoder.layers[l]
+    local last_length = e_l.last_length or enc_length
+    util.add_table(e_l.ds[last_length], d_l.ds[0])
   end
   self.encoder:bp(state.enc, enc_length)
 end

@@ -2,10 +2,10 @@ require('models/BaseEncoderLayer')
 require('nn')
 require('nngraph')
 
-local AttentionSkipLayer = torch.class('AttentionSkipLayer','BaseEncoderLayer')
+local SelectiveSkipLayer = torch.class('SelectiveSkipLayer','BaseEncoderLayer')
 
-function AttentionSkipLayer:__init(params)
-  params.layer_type = params.layer_type or 'AttentionSkipLayer'
+function SelectiveSkipLayer:__init(params)
+  params.layer_type = params.layer_type or 'SelectiveSkipLayer'
   self.batch_size = params.batch_size or 1
   BaseEncoderLayer.__init(self, params, 1, 1)
   self.capacity = self.in_capacity
@@ -13,7 +13,7 @@ function AttentionSkipLayer:__init(params)
 end
 
 
-function AttentionSkipLayer:create_encoder()
+function SelectiveSkipLayer:create_encoder()
   local to_attend    = nn.Identity()() -- 3D: batch x length x capacity
   local proj         = nn.MultiLinear(self.in_capacity, 1)(to_attend) -- 3D: batch x length x 1
   self.view1         = nn.View(self.batch_size,-1) -- batch x length
@@ -22,16 +22,17 @@ function AttentionSkipLayer:create_encoder()
   attention_w        = self.view2(attention_w) -- batch x length x 1
   local attention    = nn.MultiMM(true)({to_attend, attention_w}) -- batch x capacity x 1
   attention          = nn.View(-1,self.capacity)(attention) -- batch x capacity
-  
+
   local m         = nn.gModule({to_attend}, {attention})
   return transfer_data(m)
 end
 
 
-function AttentionSkipLayer:fp(prev_l, next_l, length, state)
+function SelectiveSkipLayer:fp(prev_l, next_l, length, state)
   local skip = self.skip
-  self:encoder(math.ceil(length/skip))
-  for i = 1, math.ceil(length/skip) do
+  self.last_length = math.ceil(length/skip)
+  self:encoder(self.last_length)
+  for i = 1, self.last_length do
     local j = 0
     local off = (i-1)*skip
     while j < skip and j < length-off do
@@ -46,10 +47,10 @@ function AttentionSkipLayer:fp(prev_l, next_l, length, state)
   return 0
 end
 
-function AttentionSkipLayer:bp(prev_l, next_l, length, state)
+function SelectiveSkipLayer:bp(prev_l, next_l, length, state)
   self.split = self.split or nn.SplitTable(2,3)
   local skip = self.skip
-  for i = math.ceil(length/skip),1,-1 do
+  for i = self.last_length,1,-1 do
     local j = 0
     local off = (i-1)*skip
     while j < skip and j < length-(i-1)*skip do
@@ -64,9 +65,9 @@ function AttentionSkipLayer:bp(prev_l, next_l, length, state)
   end
 end
 
-function AttentionSkipLayer:init_encoders(max_num) self:encoder(math.ceil(max_num/self.skip)) end
+function SelectiveSkipLayer:init_encoders(max_num) self:encoder(math.ceil(max_num/self.skip)) end
 
-function AttentionSkipLayer:params()
+function SelectiveSkipLayer:params()
   local t = BaseEncoderLayer.params(self)
   t.skip  = self.skip
   t.view1  = self.view1
@@ -74,14 +75,14 @@ function AttentionSkipLayer:params()
   return t
 end
 
-function AttentionSkipLayer:set_params(t)
+function SelectiveSkipLayer:set_params(t)
   BaseEncoderLayer.set_params(self,t)
   self.skip = t.skip
   self.view1 = t.view1
   self.view2 = t.view2
 end
 
-function AttentionSkipLayer:setup(batch_size)
+function SelectiveSkipLayer:setup(batch_size)
   self.view1.numElements = self.view1.numElements / self.batch_size * batch_size
   self.view2.numElements = self.view2.numElements / self.batch_size * batch_size
   BaseEncoderLayer.setup(self, batch_size)

@@ -5,8 +5,8 @@ require('models/DepthGatedLSTMLayer')
 require('models/GatedFeedbackLSTMLayer')
 require('models/RecurrentLayer')
 require('models/LookupLayer')
-require('models/AttentionSkipLayer')
---require('models/SkipLayer')
+require('models/SelectiveSkipLayer')
+require('models/SelectiveSkipRecurrentLayer')
 require('models/OneHotLayer')
 require('models/TanhLayer')
 local data = require('data')
@@ -32,9 +32,15 @@ function StackEncoder:new_layer(index, params)
   elseif params.layer_type == 'AttentionLSTMLayer' then
     params.batch_size = self.batch_size
     l = AttentionLSTMLayer(params)
-  elseif params.layer_type == 'AttentionSkipLayer' then
+  elseif params.layer_type == 'SelectiveSkipLayer' then
     params.batch_size = self.batch_size
-    l = AttentionSkipLayer(params)
+    l = SelectiveSkipLayer(params)
+  elseif params.layer_type == 'SelectiveSkipRecurrentLayer' then
+    params.batch_size = self.batch_size
+    l = SelectiveSkipRecurrentLayer(params)
+  elseif params.layer_type == 'SelectiveSkipLSTMLayer' then
+    params.batch_size = self.batch_size
+    l = SelectiveSkipLSTMLayer(params)
   elseif params.layer_type == 'GatedFeedbackLSTMLayer' then
     l = GatedFeedbackLSTMLayer(params)
   elseif params.layer_type == 'RevGatedFeedbackLSTMLayer' then
@@ -57,10 +63,9 @@ function StackEncoder:__init(params)
   self.dropout = params.dropout or 0
   self.layers = {}
   self.train = true
-  self.repeats = params.repeats or 1
 
   if params.layers then
-    local lp = { layer_type = "LookupLayer", repeats = self.repeats  }
+    local lp = { layer_type = "LookupLayer" }
     if params.noise_variance and params.noise_variance > 0 then lp.noise_variance = params.noise_variance end
     if params.flip_prob and params.flip_prob > 0 then lp.flip_prob = params.flip_prob end
     if not self.lookup then lp.layer_type = "OneHotLayer" end
@@ -76,15 +81,6 @@ function StackEncoder:__init(params)
       self.layers[k] = self:new_layer(k, v)
       assert(self.layers[k], v.layer_type .. " is an unknown LayerType.")
       self.layers[k]:setup(self.batch_size)
-    end
-    self.paramx = {}
-    for _,l in pairs(self.layers) do
-      if l.paramx then
-        self.paramx[l.name] = {
-          paramx = l.paramx,
-          paramdx = l.paramdx
-        }
-      end
     end
   end
 end
@@ -138,11 +134,14 @@ function StackEncoder:fp(state, length, no_reset)
   if self.layers[0] then start_l = 0 end
 
   local loss = 0
+  local last_length = length
   for j=start_l, #self.layers do
     local prev_l = self.layers[j-1]
     local next_l = self.layers[j+1]
     local l = self.layers[j]
-    loss = loss + l:fp(prev_l, next_l, length*self.repeats, state)
+    if l.layer_type == "JoinedPredictionLayer" then last_length = length
+    elseif j > start_l then last_length = prev_l.last_length or last_length end
+    loss = loss + l:fp(prev_l, next_l, last_length, state)
   end
   
   state.pos = (state.pos + length - 1) % state.x:size(1) + 1
@@ -153,12 +152,19 @@ function StackEncoder:bp(state, length)
   local start_l = 1
   if self.layers[0] then start_l = 0 end
   state.pos = (state.pos - length - 1 + state.x:size(1)) % state.x:size(1) + 1
-  
+
+  local last_lengths = {[start_l]=length}
+  for j=start_l+1, #self.layers do
+    local prev_l = self.layers[j-1]
+    local l = self.layers[j]
+    if l.layer_type == "JoinedPredictionLayer" then last_lengths[j] = length
+    elseif j > start_l then last_lengths[j] = prev_l.last_length or last_lengths[j-1] end
+  end
   for j=#self.layers,start_l,-1 do
     local prev_l = self.layers[j-1]
     local next_l = self.layers[j+1]
     local l = self.layers[j]
-    l:bp(prev_l, next_l, length*self.repeats, state)
+    l:bp(prev_l, next_l, last_lengths[j], state)
   end
 
   state.pos = (state.pos + length - 1) % state.x:size(1) + 1
@@ -194,19 +200,12 @@ function StackEncoder:set_params(t)
   self.lookup   = t.lookup
   self.embedding_size   = t.embedding_size
   self.layers   = {}
-  self.paramx   = {}
   for k=0, #t.layers do
     local l = t.layers[k]
     if l then
-      if stringx.endswith(l.layer_type, 'ShortcutLayer') then l.from = #t.layers - k end -- #t.layers
+      --if stringx.endswith(l.layer_type, 'ShortcutLayer') then l.from = #t.layers - k end -- #t.layers
       self.layers[k] = self:new_layer(k, l)
       self.layers[k]:set_params(l)
-      if self.layers[k].paramx then
-        self.paramx[self.layers[k].name] = {
-          paramx = self.layers[k].paramx,
-          paramdx = self.layers[k].paramdx
-        }
-      end
     end
   end
   self:setup()

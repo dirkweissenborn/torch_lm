@@ -14,11 +14,6 @@ function BaseEncoderLayer:__init(params, s_size, out_index)
   self.layer_type         = params.layer_type or self.__typename
   self.core_encoder       = self:create_encoder()
   self.train              = true
-  if self.core_encoder and self.core_encoder:getParameters():nDimension() > 0 then
-    local paramx, paramdx   = self.core_encoder:getParameters()
-    self.paramx = paramx
-    self.paramdx = paramdx
-  end
 end
 
 function BaseEncoderLayer:create_encoder()
@@ -83,10 +78,6 @@ function BaseEncoderLayer:params()
   t.out_index    = self.out_index
   t.layer_type   = self.layer_type
   t.in_capacity  = self.in_capacity
-  if self.paramx then
-    t.paramx  = self.paramx
-    t.paramdx  = self.paramdx
-  end
   return t
 end
 
@@ -98,10 +89,6 @@ function BaseEncoderLayer:set_params(t)
   self.out_index    = t.out_index
   self.layer_type   = t.layer_type
   self.in_capacity  = t.in_capacity
-  if t.paramx then
-    self.paramx = t.paramx
-    self.paramdx = t.paramdx
-  end
   collectgarbage()
 end
 

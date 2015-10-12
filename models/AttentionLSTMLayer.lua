@@ -62,7 +62,7 @@ function AttentionLSTMLayer:create_encoder()
       in_size = self.capacity
     end
 
-    local next_c, next_h = self:lstm(in_size, x, prev_h, prev_c)
+    local next_c, next_h = lstm(in_size, self.capacity, x, prev_h, prev_c)
     table.insert(next_s, next_c)
     table.insert(next_s, next_h)
   end

@@ -4,7 +4,6 @@ local PredictionLayer = torch.class('PredictionLayer', 'BaseEncoderLayer')
 
 function PredictionLayer:__init(params)
   params.layer_type = params.layer_type or 'PredictionLayer'
-  self.repeats = params.repeats or 1
   BaseEncoderLayer.__init(self, params, 1, 1)
 end
 
@@ -26,11 +25,11 @@ function PredictionLayer:fp(prev_l, next_l, length, state)
   local loss = 0
   for i = 1, length do
     local inp  = prev_l.out_s[i]
-    local y = state.y[(state.pos+ math.floor((i-1) / self.repeats)) % state.y:size(1) + 1]
+    local y = state.y[(state.pos+ i-1) % state.y:size(1) + 1]
     local pred = self:encoder(i)
     local tmp_s, tmp = unpack(pred:forward({inp, y}))
     self.out_s[i]:add(tmp_s)
-    if self.train or (i % self.repeats) == 0 then loss = loss + tmp[1] end
+    loss = loss + tmp[1]
   end
   return loss
 end
@@ -38,7 +37,7 @@ end
 function PredictionLayer:bp(prev_l, next_l, length, state)
   for i = length,1,-1 do
     local inp   = prev_l.out_s[i]
-    local y     = state.y[(state.pos+ math.floor((i-1) / self.repeats)) % state.y:size(1) + 1]
+    local y     = state.y[(state.pos+ i-1) % state.y:size(1) + 1]
     local pred  = self:encoder(i)
     local in_ds = pred:backward({inp,y}, {self.out_ds[i],self.pred_err})[1]
     prev_l.out_ds[i]:add(in_ds)
@@ -52,11 +51,9 @@ end
 
 function PredictionLayer:params()
   local t = BaseEncoderLayer.params(self)
-  t.repeats = self.repeats
   return t
 end
 
 function PredictionLayer:set_params(t)
   BaseEncoderLayer.set_params(self,t)
-  self.repeats = t.repeats or 1
 end

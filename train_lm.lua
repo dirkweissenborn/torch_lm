@@ -41,6 +41,7 @@ cmd:option('-layer','lstm',"lstm|gf(gated-feedback)|dg(depth-gated)|grid")
 cmd:option('-repeats', 1, 'repeat each symbol how many times.')
 cmd:option('-linewise', false, 'train linewise, in contrast to training on continuously on input text.')
 cmd:option('-randomize', false, 'randomize linewise input.')
+cmd:option('-skip', 1, 'use selective skip layers')
 
 cmd:text()
 
@@ -83,6 +84,19 @@ elseif opt.layer == "dg" then
   ls[1] = { layer_type = "DepthGatedLSTMLayer", depth = opt.depth }
 elseif opt.layer == "grid" then
   ls[1] = { layer_type = "GridLSTMLayer", depth = opt.depth }
+elseif opt.skip > 1 and opt.depth>1 then
+  if stringx.startswith(opt.type, "lstm") then
+    table.insert(ls, { layer_type = "LSTMLayer", depth = 1 })
+  else
+    table.insert(ls, { layer_type = "RecurrentLayer", type=opt.type , depth = 1})
+  end
+  for i=2, opt.depth do
+    if stringx.startswith(opt.type, "lstm") then
+      table.insert(ls, { layer_type = "SelectiveSkipLSTMLayer", skip = opt.skip })
+    else
+      table.insert(ls, { layer_type = "SelectiveSkipRecurrentLayer", type=opt.type, skip = opt.skip})
+    end
+  end
 else
   --for i=1, opt.depth do
     if stringx.startswith(opt.type, "lstm") then
@@ -154,7 +168,7 @@ else
   opt.overwrite = true
 end
 
-for _,v in pairs(decoder.paramx) do num_params = num_params + v.paramx:size(1) end
+for _,v in pairs(decoder:networks()) do num_params = num_params + v:getParameters():size(1) end
 
 if opt.overwrite then
   optim_state.losses = {}
@@ -304,9 +318,6 @@ end
 
 ---------- Training Closure -------------
 local params, grad_params = model_utils.combine_all_parameters(decoder:networks())
-
-local params, grad_params =
-  model_utils.combine_all_parameters(unpack(tablex.map(function(l) return l.core_encoder end, decoder.layers)))
 
 if opt.overwrite then params:uniform(-0.08, 0.08) end
 

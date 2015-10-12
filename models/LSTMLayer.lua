@@ -1,7 +1,6 @@
-require("models/BaseEncoderLayer")
+require("models/RecurrentLayer")
 require("models/BPDropout")
-local util  = require("util")
-local LSTMLayer = torch.class('LSTMLayer', 'BaseEncoderLayer')
+local LSTMLayer = torch.class('LSTMLayer', 'RecurrentLayer')
 
 function LSTMLayer:__init(params)
   params.layer_type = params.layer_type or 'LSTMLayer'
@@ -10,89 +9,42 @@ function LSTMLayer:__init(params)
 end
 
 function LSTMLayer:create_encoder()
+  local inputs,next_s = create_lstm_encoder(self.in_capacity, self.capacity, self.depth, self.dropout)
+  local m             = nn.gModule(inputs, next_s)
+  return transfer_data(m)
+end
+
+function create_lstm_encoder(in_capacity, capacity, depth, dropout, input)
+  dropout = dropout or 0
   local inputs = {}
   local next_s        = {}
-  table.insert(inputs, nn.Identity()()) -- x
-  for L = 1,self.depth do
-    local prev_c         = nn.Identity()() 
+  table.insert(inputs, input or nn.Identity()()) -- x
+  for L = 1,depth do
+    local prev_c         = nn.Identity()()
     local prev_h         = nn.Identity()()
     table.insert(inputs, prev_c)
     table.insert(inputs, prev_h)
     local x
-    if L == 1 then x = nn.BPDropout(self.dropout)(inputs[1]) 
+    if L == 1 then x = nn.BPDropout(dropout)(inputs[1])
     else x = next_s[2*L-2] end
-    
-    local in_size = self.in_capacity
-    if L > 1 then in_size = self.capacity end
-    local next_c, next_h = self:lstm(in_size, x, prev_h, prev_c)
+
+    local in_size = in_capacity
+    if L > 1 then in_size = capacity end
+    local next_c, next_h = lstm(in_size, capacity, x, prev_h, prev_c)
     table.insert(next_s, next_c)
     table.insert(next_s, next_h)
   end
 
-  local m          = nn.gModule(inputs, next_s)
-  return transfer_data(m)
+  return inputs, next_s
 end
 
-function LSTMLayer:reset()
-  util.zero_table(self.start_s)
-  self:reset_s()
-end
-
-function LSTMLayer:fp(prev_l, next_l, length, state)
-  util.replace_table(self.s[0], self.start_s)
-  self:encoder(length) -- make sure there are enough encoders
-  for i = 1, length do
-    local inp = prev_l.out_s[i]
-    local lstm = self:encoder(i)
-    local tmp = lstm:forward({inp, unpack(self.s[i-1])})
-    util.add_table(self.s[i],tmp)
-  end
-  util.replace_table(self.start_s, self.s[length])
-  return 0
-end
-
-function LSTMLayer:bp(prev_l, next_l, length, state)
-  for i = length,1,-1 do
-    local inp = prev_l.out_s[i]
-    local lstm = self:encoder(i)
-    local ds = lstm:backward({inp, unpack(self.s[i-1])}, self.ds[i])
-    prev_l.out_ds[i]:add(ds[1])
-    for L=1,2*self.depth do self.ds[i-1][L]:add(ds[L+1]) end
-  end
-end
-
-function LSTMLayer:setup(batch_size)
-  BaseEncoderLayer.setup(self, batch_size)
-  self.start_s = {}
-  self.s[0] = {}
-  self.ds[0] = {}
-  for d = 1, 2 * self.depth do
-    table.insert(self.start_s, transfer_data(torch.zeros(batch_size,self.capacity)))
-    table.insert(self.ds[0], transfer_data(torch.zeros(batch_size,self.capacity)))
-    table.insert(self.s[0], transfer_data(torch.zeros(batch_size,self.capacity)))
-  end
-  self.out_s[0] = self.s[0][self.out_index]
-  self.out_ds[0] =  self.ds[0][self.out_index]
-end
-
-function LSTMLayer:params()
-  local t = BaseEncoderLayer.params(self)
-  t.depth         = self.depth
-  return t
-end
-
-function LSTMLayer:set_params(t)
-  BaseEncoderLayer.set_params(self,t)
-  self.depth          = t.depth
-end
-
-function LSTMLayer:lstm(in_size, x, prev_h, prev_c)
+function lstm(in_size, out_size, x, prev_h, prev_c)
   -- evaluate the input sums at once for efficiency
-  local i2h = nn.Linear(in_size, 4 * self.capacity)(x)
-  local h2h = nn.Linear(self.capacity, 4 * self.capacity)(prev_h)
+  local i2h = nn.Linear(in_size, 4 * out_size)(x)
+  local h2h = nn.Linear(out_size, 4 * out_size)(prev_h)
   local all_input_sums = nn.CAddTable()({i2h, h2h})
 
-  local reshaped = nn.Reshape(4, self.capacity)(all_input_sums)
+  local reshaped = nn.Reshape(4, out_size)(all_input_sums)
   local n1, n2, n3, n4 = nn.SplitTable(2)(reshaped):split(4)
   -- decode the gates
   local in_gate = nn.Sigmoid()(n1)

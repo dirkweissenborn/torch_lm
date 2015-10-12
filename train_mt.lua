@@ -88,9 +88,10 @@ end
 ----------  Model & Data Setup -----------------
 print("Setup. Can take a while ... ")
 
-table.insert(ls, {layer_type = "AttentionSkipLayer", skip = 5})
-local enc_dec = AttentionEncoderDecoder(opt,ls,{ 
-  [1] = {layer_type = "AttentionLSTMLayer", attention_capacity = opt.capacity, depth = opt.depth} })
+table.insert(ls, {layer_type = "LSTMLayer", skip = 5})
+--table.insert(ls, {layer_type = "AttentionSkipLSTMLayer", skip = 5})
+local enc_dec = EncoderDecoder(opt,ls, ls)
+  --{[1] = {layer_type = "AttentionLSTMLayer", attention_capacity = opt.capacity, depth = opt.depth} })
 
 -- setup training data
 local total_length = loader.ntrain * opt.seq_length
@@ -147,7 +148,7 @@ else
   opt.overwrite = true
 end
 
-for _,v in pairs(enc_dec.paramx) do num_params = num_params + v.paramx:size(1) end
+for _,v in pairs(enc_dec:networks()) do num_params = num_params + v:getParameters():size(1) end
 
 if opt.overwrite then
   optim_state.losses = {}
@@ -202,7 +203,6 @@ local function run_split(split_index)
   enc_dec:disable_training()
   local loss = 0
   local n = loader.split_sizes[split_index]
-  
   loader:reset_batch_pointer(split_index)
   local total_len = 0
   for i = 1, n do
@@ -215,7 +215,6 @@ local function run_split(split_index)
     loss = loss + l
   end
   loss = loss / total_len
-  
   return loss
 end
 

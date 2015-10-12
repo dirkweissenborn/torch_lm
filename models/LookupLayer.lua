@@ -7,7 +7,6 @@ function LookupLayer:__init(params)
   params.layer_type = params.layer_type or 'LookupLayer'
   self.noise_variance = params.noise_variance
   self.flip_prob      = params.flip_prob or 0
-  self.repeats        = params.repeats or 1
   BaseEncoderLayer.__init(self, params, 1, 1)
 end
 
@@ -29,7 +28,7 @@ end
 function LookupLayer:fp(prev_l, next_l, length, state)
   self:encoder(length)
   for i = 1, length do
-    local inp = state.x[(state.pos + math.floor((i-1) / self.repeats)) % state.x:size(1) + 1]
+    local inp = state.x[(state.pos + i-1) % state.x:size(1) + 1]
     local lookup = self:encoder(i)
     local tmp = lookup:forward(inp)
     self.out_s[i]:add(tmp)
@@ -39,7 +38,7 @@ end
 
 function LookupLayer:bp(prev_l, next_l, length, state)
   for i = length,1,-1 do
-    local inp = state.x[(state.pos+ math.floor((i-1) / self.repeats)) % state.x:size(1) + 1]
+    local inp = state.x[(state.pos+i-1) % state.x:size(1) + 1]
     local lookup = self:encoder(i)
     local in_ds = lookup:backward(inp, self.out_ds[i])
     if input_ds then input_ds[i]:add(in_ds) end
@@ -50,7 +49,6 @@ function LookupLayer:params()
   local t = BaseEncoderLayer.params(self)
   t.noise_variance = self.noise_variance
   t.flip_prob = self.flip_prob
-  t.repeats = self.repeats
   return t
 end
 
@@ -58,5 +56,4 @@ function LookupLayer:set_params(t)
   BaseEncoderLayer.set_params(self,t)
   self.noise_variance = t.noise_variance
   self.flip_prob = t.flip_prob
-  self.repeats = t.repeats or 1
 end
