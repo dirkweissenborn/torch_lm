@@ -45,7 +45,7 @@ function JoinedPredictionLayer:fp(prev_l, next_l, length, state)
       for l=1,#self.layers do
         local layer = self.layers[l]
         skip = skip * (layer.skip or 1)
-        if skip > 1 and i % layer.skip ~= 1 then
+        if skip > 1 and i % layer.skip ~= 0 and i>1 then
           table.insert(self.proj_s[i], self.proj_s[i-1][l])
         else  
           table.insert(self.proj_s[i], transfer_data(torch.zeros(self.batch_size,self.in_capacity)))
@@ -57,8 +57,8 @@ function JoinedPredictionLayer:fp(prev_l, next_l, length, state)
     for l=1,#self.layers do
       local layer = self.layers[l]
       skip = skip * (layer.skip or 1)
-      if skip == 1 or i % skip == 1 then
-        self.proj_s[i][l] = self.proj[l]:forward(layer.out_s[math.ceil(i/skip)])
+      if skip == 1 or i % skip == 0 or i==1 then
+        self.proj_s[i][l] = self.proj[l]:forward(layer.out_s[math.floor(i/skip)])
       end
     end
     -- then calc prediction
@@ -85,8 +85,8 @@ function JoinedPredictionLayer:bp(prev_l, next_l, length, state)
     for l=1,#self.layers do
       local layer = self.layers[l]
       skip = skip * (layer.skip or 1)
-      local in_ds = self.proj[l]:backward(layer.out_s[math.ceil(i/skip)], tmp_ds[l])
-      layer.out_ds[math.ceil(i/skip)]:add(in_ds)
+      local in_ds = self.proj[l]:backward(layer.out_s[math.floor(i/skip)], tmp_ds[l])
+      layer.out_ds[math.floor(i/skip)]:add(in_ds)
     end
   end
 end

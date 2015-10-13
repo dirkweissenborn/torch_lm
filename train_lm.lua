@@ -74,6 +74,7 @@ if opt.layer ~= "lstm" then name = opt.layer .. "_" .. name end
 if opt.depth   ~=1 then name = name .. "-depth" .. opt.depth end
 if opt.scaling ~=1 then name = name .. "-scale" .. opt.scaling end
 if opt.dropout > 0 then name = name .. "-dr" .. opt.dropout end
+if opt.skip ~=1 then name = name .. "-skip" .. opt.skip end
 
 -- Setup Architecture
 local ls = {}
@@ -98,13 +99,13 @@ elseif opt.skip > 1 and opt.depth>1 then
     end
   end
 else
-  --for i=1, opt.depth do
+  for i=1, opt.depth do
     if stringx.startswith(opt.type, "lstm") then
-      table.insert(ls, { layer_type = "LSTMLayer", depth = opt.depth })
+      table.insert(ls, { layer_type = "LSTMLayer" })
     else
-      table.insert(ls, { layer_type = "RecurrentLayer", type=opt.type , depth = opt.depth})
+      table.insert(ls, { layer_type = "RecurrentLayer", type=opt.type})
     end
-  --end
+  end
 end
 opt.layers = ls
 
