@@ -121,7 +121,7 @@ function JoinedPredictionLayer:networks(networks)
   networks = networks or {}
   table.insert(networks,self.core_encoder)
   for l=1,#self.layers do
-    table.insert(networks, self.proj[i])
+    table.insert(networks, self.core_proj[i])
   end
   return networks
 end
