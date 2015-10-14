@@ -1,7 +1,10 @@
 require('models/RecurrentLayer')
 require('models/LSTMLayer')
+require('models/MultiLinear')
 local util = require("util")
 local SelectiveSkipRecurrentLayer = torch.class('SelectiveSkipRecurrentLayer','RecurrentLayer')
+
+-- Do not work better than normal RecurrentLayer for language modeling
 
 function SelectiveSkipRecurrentLayer:__init(params)
   params.layer_type = params.layer_type or 'SelectiveSkipRecurrentLayer'
@@ -130,3 +133,44 @@ function SelectiveSkipLSTMLayer:create_encoder()
   local m             = nn.gModule(inputs, next_s)
   return transfer_data(m)
 end
+
+--[[
+function SelectiveSkipLSTMLayer:create_encoder()
+  local inputs = {}
+  local next_s        = {}
+  local to_attend    = nn.Identity()() -- 3D: batch x length x in_capacity
+  table.insert(inputs, to_attend) -- x
+  for L = 1,2*self.depth do
+    table.insert(inputs, nn.Identity()())
+  end
+  local multi_proj   = nn.MultiLinear(self.in_capacity, 10)(to_attend) -- 3D: batch x length x in_cap
+
+  local last_proj    = nn.ExpandAs(2)({nn.Linear(self.capacity,10)(inputs[#inputs]), multi_proj})
+  local proj         = nn.Tanh()(nn.MultiCAddTable()({multi_proj,last_proj}))
+
+  self.view1         = nn.View(self.batch_size,-1)
+  local attention_w  = self.view1(nn.MultiLinear(10, 1)(proj))
+  attention_w        = nn.SoftMax()(attention_w) -- batch x attention_length
+
+  self.view2         = nn.View(self.batch_size,-1,1)
+  attention_w        = self.view2(attention_w) -- batch x length x 1
+  local attention    = nn.MultiMM(true)({to_attend, attention_w}) -- batch x capacity x 1
+  attention          = nn.View(-1,self.in_capacity)(attention) -- batch x capacity
+
+  for L = 1,self.depth do
+    local prev_c         = inputs[2*L]
+    local prev_h         = inputs[2*L+1]
+    local x
+    if L == 1 then x = nn.BPDropout(self.dropout)(attention)
+    else x = next_s[2*L-2] end
+
+    local in_size = self.in_capacity
+    if L > 1 then in_size = self.capacity end
+    local next_c, next_h = lstm(in_size, self.capacity, x, prev_h, prev_c)
+    table.insert(next_s, next_c)
+    table.insert(next_s, next_h)
+  end
+
+  local m             = nn.gModule(inputs, next_s)
+  return transfer_data(m)
+end--]]

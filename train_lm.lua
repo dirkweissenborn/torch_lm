@@ -86,12 +86,14 @@ elseif opt.layer == "dg" then
 elseif opt.layer == "grid" then
   ls[1] = { layer_type = "GridLSTMLayer", depth = opt.depth }
 elseif opt.skip > 1 and opt.depth>1 then
-  if stringx.startswith(opt.type, "lstm") then
-    table.insert(ls, { layer_type = "LSTMLayer", depth = 1 })
-  else
-    table.insert(ls, { layer_type = "RecurrentLayer", type=opt.type , depth = 1})
+  for i=1, math.min(opt.depth,2) do
+    if stringx.startswith(opt.type, "lstm") then
+      table.insert(ls, { layer_type = "LSTMLayer", depth = 1 })
+    else
+      table.insert(ls, { layer_type = "RecurrentLayer", type=opt.type , depth = 1})
+    end
   end
-  for i=2, opt.depth do
+  for i=3, opt.depth do
     if stringx.startswith(opt.type, "lstm") then
       table.insert(ls, { layer_type = "SelectiveSkipLSTMLayer", skip = opt.skip })
     else

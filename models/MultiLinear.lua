@@ -127,7 +127,7 @@ function ExpandAs:updateGradInput(input, gradOutput)
   local sizes = {}
   for i=1,expand_to:nDimension() do table.insert(sizes, expand_to:size(i)) end
   sizes[self.dim] = 1
-  self.gradInput2:resize(unpack(sizes))
+  self.gradInput2:resize(unpack(sizes)):zero()
   self.gradInput[2] = self.gradInput2:expandAs(expand_to)
   
   if to_expand:nElement() ~= self.gradInput[1]:nElement() then

@@ -39,6 +39,7 @@ cmd:option('-embedding_size', 200, 'size of symbol embeddings')
 cmd:option('-layer','lstm',"lstm|gf(gated-feedback)|dg(depth-gated)|grid")
 cmd:option('-repeats', 1, 'repeat each symbol how many times.')
 cmd:option('-randomize', false, 'randomize linewise input.')
+cmd:option('-skip', 1, 'use selective skip layers')
 
 cmd:text()
 
@@ -65,6 +66,7 @@ if opt.layer ~= "lstm" then name = opt.layer .. "_" .. name end
 if opt.depth   ~=1 then name = name .. "-depth" .. opt.depth end
 if opt.scaling ~=1 then name = name .. "-scale" .. opt.scaling end
 if opt.dropout > 0 then name = name .. "-dr" .. opt.dropout end
+if opt.skip ~=1 then name = name .. "-skip" .. opt.skip end
 
 -- Setup Architecture
 local ls = {}
@@ -75,21 +77,36 @@ elseif opt.layer == "dg" then
   ls[1] = { layer_type = "DepthGatedLSTMLayer", depth = opt.depth }
 elseif opt.layer == "grid" then
   ls[1] = { layer_type = "GridLSTMLayer", depth = opt.depth }
-else
-  --for i=1, opt.depth do
+elseif opt.skip > 1 and opt.depth>1 then
+  for i=1, math.min(opt.depth,2) do
     if stringx.startswith(opt.type, "lstm") then
-      table.insert(ls, { layer_type = "LSTMLayer", depth = opt.depth })
+      table.insert(ls, { layer_type = "LSTMLayer", depth = 1 })
     else
-      table.insert(ls, { layer_type = "RecurrentLayer", type=opt.type , depth = opt.depth})
+      table.insert(ls, { layer_type = "RecurrentLayer", type=opt.type , depth = 1})
     end
-  --end
+  end
+  for i=3, opt.depth do
+    if stringx.startswith(opt.type, "lstm") then
+      table.insert(ls, { layer_type = "SelectiveSkipLSTMLayer", skip = opt.skip })
+    else
+      table.insert(ls, { layer_type = "SelectiveSkipRecurrentLayer", type=opt.type, skip = opt.skip})
+    end
+  end
+else
+  for i=1, opt.depth do
+    if stringx.startswith(opt.type, "lstm") then
+      table.insert(ls, { layer_type = "LSTMLayer" })
+    else
+      table.insert(ls, { layer_type = "RecurrentLayer", type=opt.type})
+    end
+  end
 end
 
 ----------  Model & Data Setup -----------------
 print("Setup. Can take a while ... ")
 
-table.insert(ls, {layer_type = "LSTMLayer", skip = 5})
---table.insert(ls, {layer_type = "AttentionSkipLSTMLayer", skip = 5})
+--table.insert(ls, {layer_type = "LSTMLayer", skip = 5})
+--table.insert(ls, {layer_type = "SelectiveSkipLSTMLayer", skip = 5})
 local enc_dec = EncoderDecoder(opt,ls, ls)
   --{[1] = {layer_type = "AttentionLSTMLayer", attention_capacity = opt.capacity, depth = opt.depth} })
 

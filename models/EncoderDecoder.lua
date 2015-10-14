@@ -74,11 +74,12 @@ function EncoderDecoder:fp(state, enc_length, dec_length)
       end
     end
   end--]]
+  local last_length = enc_length
   for l=1, #self.encoder.layers do
     local e_l = self.encoder.layers[l]
     local d_l = self.decoder.layers[l]
     assert(d_l.start_s, "Trying to copy state from encoder to start state of decoder, which decoder doesn't have!")
-    local last_length = e_l.last_length or enc_length
+    last_length = e_l.last_length or last_length
     util.add_table(d_l.start_s, e_l.s[last_length])
   end
 
@@ -102,10 +103,11 @@ function EncoderDecoder:bp(state, enc_length, dec_length)
       end
     end
   end--]]
+  local last_length = enc_length
   for l=1, #self.encoder.layers do
     local e_l = self.encoder.layers[l]
     local d_l = self.decoder.layers[l]
-    local last_length = e_l.last_length or enc_length
+    last_length = e_l.last_length or last_length
     util.add_table(e_l.ds[last_length], d_l.ds[0])
   end
   self.encoder:bp(state.enc, enc_length)
