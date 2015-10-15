@@ -20,11 +20,27 @@ function AttentionEncoderDecoder:fp(state, enc_length, dec_length)
     table.insert(attention.ds, last_layer.out_ds[i])
   end
   state.dec.attention = attention
+
+  local last_length = enc_length
+  for l=1, #self.encoder.layers do
+    local e_l = self.encoder.layers[l]
+    local d_l = self.decoder.layers[l]
+    last_length = e_l.last_length or last_length
+    util.add_table(d_l.start_s, e_l.s[last_length])
+  end
+  
   return self.decoder:fp(state.dec, dec_length)
 end
 
 function AttentionEncoderDecoder:bp(state, enc_length, dec_length)
   self.decoder:bp(state.dec, dec_length)
+  local last_length = enc_length
+  for l=1, #self.encoder.layers do
+    local e_l = self.encoder.layers[l]
+    local d_l = self.decoder.layers[l]
+    last_length = e_l.last_length or last_length
+    util.add_table(e_l.ds[last_length], d_l.ds[0])
+  end
   self.encoder:bp(state.enc, enc_length)
 end
 

@@ -17,7 +17,7 @@ end
 function create_lstm_encoder(in_capacity, capacity, depth, dropout, input)
   dropout = dropout or 0
   local inputs = {}
-  local next_s        = {}
+  local next_s = {}
   table.insert(inputs, input or nn.Identity()()) -- x
   for L = 1,depth do
     local prev_c         = nn.Identity()()

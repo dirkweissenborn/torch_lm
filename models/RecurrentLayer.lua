@@ -42,7 +42,7 @@ function RecurrentLayer:bp(prev_l, next_l, length, state)
     local rnn = self:encoder(i)
     local ds
     if self.s_size > 1 then ds = rnn:backward({inp, unpack(self.s[i-1])}, self.ds[i])
-    else  ds = rnn:backward({inp, unpack(self.s[i-1])}, self.ds[i][1]) end
+    else ds = rnn:backward({inp, unpack(self.s[i-1])}, self.ds[i][1]) end
     prev_l.out_ds[i]:add(ds[1])
     for L=1,self.s_size do self.ds[i-1][L]:add(ds[L+1]) end
   end

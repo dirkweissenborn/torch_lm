@@ -6,7 +6,7 @@ local tds = require 'tds'
 local SplitLMLinewiseMinibatchLoader = {}
 SplitLMLinewiseMinibatchLoader.__index = SplitLMLinewiseMinibatchLoader
 
-function SplitLMLinewiseMinibatchLoader.create(data_dir, batch_size, seq_length, split_fractions, random_batches, words)
+function SplitLMLinewiseMinibatchLoader.create(data_dir, batch_size, max_length, split_fractions, random_batches, words)
   -- split_fractions is e.g. {0.9, 0.05, 0.05}
 
   local self = {}
@@ -49,6 +49,8 @@ function SplitLMLinewiseMinibatchLoader.create(data_dir, batch_size, seq_length,
 
   print('loading data files...')
   self.vocab_mapping = torch.load(vocab_file)
+  self.vocab_mapping["<sos>"] = self.vocab_mapping["<sos>"] or vocab_size+1
+  self.vocab_mapping["<eos>"] = self.vocab_mapping["<eos>"] or vocab_size+2
   --local data = torch.load(tensor_file)
   local file = torch.DiskFile(tensor_file, 'r')
   file['binary'](file)
@@ -61,8 +63,11 @@ function SplitLMLinewiseMinibatchLoader.create(data_dir, batch_size, seq_length,
   local train = tds.hash()
   tablex.icopy(train, data, 1, 1, train_l)
   local valid_l = math.floor(len * split_fractions[2])
-  local valid = tds.hash()
-  tablex.icopy(valid, data, 1, train_l+1, valid_l)
+  local valid 
+  if valid_l > 0 then
+    valid = tds.hash()
+    tablex.icopy(valid, data, 1, train_l+1, valid_l)
+  end
   local test_l = math.floor(len * split_fractions[3])
   local test
   if test_l > 0 then
@@ -83,17 +88,17 @@ function SplitLMLinewiseMinibatchLoader.create(data_dir, batch_size, seq_length,
 
   -- self.batches is a table of tensors
   self.batch_size = batch_size
-  self.seq_length = 0
+  self.max_length = 0
   print('Sorting by line-length...')
   local function sort_data(d)
-    local lens = torch.ShortTensor(#d)
+    local lens = torch.IntTensor(#d)
     for i=1,#d do lens[i] = d[i]:size(1) end
     local sorted,sorted_ix = torch.sort(lens)
-    self.seq_length = math.max(sorted[sorted:size(1)]+1, self.seq_length)
-    if seq_length > 0 then 
+    self.max_length = math.max(sorted[sorted:size(1)]+1, self.max_length)
+    if max_length > 0 then
       --cut sequences that are too long
       local j = sorted:size(1)
-      while sorted[j] > seq_length do
+      while sorted[j] > max_length do
         j = j - 1
       end
       sorted_ix = sorted_ix:sub(1,j)
@@ -109,10 +114,12 @@ function SplitLMLinewiseMinibatchLoader.create(data_dir, batch_size, seq_length,
   self.length_sorted[1] = sorted_train
   self.ntrain = math.floor(sorted_train:size(1)/batch_size)
 
-  local sorted_valid = sort_data(valid)
-  self.length_sorted[2] = sorted_valid
-  self.nval = math.floor(sorted_valid:size(1)/batch_size)
-
+  self.nval = 0
+  if valid then
+    local sorted_valid = sort_data(valid)
+    self.length_sorted[2] = sorted_valid
+    self.nval = math.floor(sorted_valid:size(1)/batch_size)
+  end
   self.ntest = 0
   if test then
     local sorted_test = sort_data(test)
@@ -120,8 +127,8 @@ function SplitLMLinewiseMinibatchLoader.create(data_dir, batch_size, seq_length,
     self.ntest = math.floor(sorted_test:size(1)/batch_size)
   end
 
-  if seq_length > 0 then -- there is a maximum length
-    self.seq_length = math.min(seq_length, self.seq_length)
+  if max_length > 0 then -- there is a maximum length
+    self.max_length = math.min(max_length, self.max_length)
   end
   
   self.split_sizes = { self.ntrain, self.nval, self.ntest }
@@ -140,7 +147,7 @@ function SplitLMLinewiseMinibatchLoader.create(data_dir, batch_size, seq_length,
   end
 
   print(string.format('data load done. Number of data batches in train: %d, val: %d, test: %d',
-    self.ntrain, self.nval, self.ntest or 0))
+    self.ntrain, self.nval, self.ntest))
   collectgarbage()
   return self
 end
@@ -194,11 +201,9 @@ function SplitLMLinewiseMinibatchLoader:next_batch(split_index, split_symbol)
     if len2 == 0 then return self:next_batch(split_index, split_symbol) end
     xbatch2 = torch.Tensor(batch_size,len2):typeAs(data[1]):fill(eos)
     ybatch2 = torch.Tensor(batch_size,len2):typeAs(data[1]):fill(eos)
-  end  
-  
+  end
   for j=1,batch_size do
     local d = data[self.length_sorted[split_index][i*batch_size+j]]
-    
     if split_symbol then
       local split = 1
       while split < d:size(1) and d[split] ~= split_num do split = split + 1 end

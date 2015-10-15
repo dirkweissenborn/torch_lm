@@ -5,7 +5,7 @@ require("pl")
 local SplitLMMinibatchLoader = {}
 SplitLMMinibatchLoader.__index = SplitLMMinibatchLoader
 
-function SplitLMMinibatchLoader.create(data_dir, batch_size, seq_length, split_fractions, words)
+function SplitLMMinibatchLoader.create(data_dir, batch_size, max_length, split_fractions, words)
   -- split_fractions is e.g. {0.9, 0.05, 0.05}
 
   local self = {}
@@ -48,6 +48,9 @@ function SplitLMMinibatchLoader.create(data_dir, batch_size, seq_length, split_f
 
   print('loading data files...')
   self.vocab_mapping = torch.load(vocab_file)
+  local vocab_size = tablex.size(self.vocab_mapping)
+  self.vocab_mapping["<sos>"] = self.vocab_mapping["<sos>"] or vocab_size+1
+  self.vocab_mapping["<eos>"] = self.vocab_mapping["<eos>"] or vocab_size+2
   local data = torch.load(tensor_file)
   local len = data:size(1)
   
@@ -67,23 +70,19 @@ function SplitLMMinibatchLoader.create(data_dir, batch_size, seq_length, split_f
 
   -- self.batches is a table of tensors
   self.batch_size = batch_size
-  self.seq_length = seq_length
+  self.max_length = max_length
   
   print('reshaping tensors...')
   local function create_batches(d)
     -- cut off the end so that it divides evenly
     local d_len = d:size(1)
-    if d_len % (batch_size * seq_length) ~= 0 then
-      d = d:sub(1, batch_size * seq_length
-          * math.floor(d_len / (batch_size * seq_length)))
+    if d_len % (batch_size * max_length) ~= 0 then
+      d = d:sub(1, batch_size * max_length
+          * math.floor(d_len / (batch_size * max_length))+1)
     end
 
-    local ydata = d:clone()
-    ydata:sub(1, -2):copy(d:sub(2, -1))
-    ydata[-1] = d[1]
-
-    local xdata = d:view(batch_size, -1):t():split(seq_length, 1)
-    ydata = ydata:view(batch_size, -1):t():split(seq_length, 1)
+    local xdata = d:sub(1,-2):view(batch_size, -1):t():split(max_length, 1)
+    local ydata = d:sub(2,-1):view(batch_size, -1):t():split(max_length, 1)
          
     return xdata, ydata
   end
@@ -189,6 +188,7 @@ function SplitLMMinibatchLoader.text_to_tensor(in_textfile, out_vocabfile, out_t
   for i, char in ipairs(ordered) do
     vocab_mapping[char] = i
   end
+
   -- construct a tensor with all the data
   print('putting data into tensor...')
   local data 

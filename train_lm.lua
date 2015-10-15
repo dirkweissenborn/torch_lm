@@ -40,6 +40,7 @@ cmd:option('-embedding_size', 200, 'size of symbol embeddings')
 cmd:option('-layer','lstm',"lstm|gf(gated-feedback)|dg(depth-gated)|grid")
 cmd:option('-repeats', 1, 'repeat each symbol how many times.')
 cmd:option('-linewise', false, 'train linewise, in contrast to training on continuously on input text.')
+cmd:option('-max_length', -1, 'Maximum length of line, when training linewise.')
 cmd:option('-randomize', false, 'randomize linewise input.')
 cmd:option('-skip', 1, 'use selective skip layers')
 
@@ -60,7 +61,7 @@ local batchloader
 local loader
 if opt.linewise then
   batchloader = require('SplitLMLinewiseMinibatchLoader')
-  loader = batchloader.create(opt.data_dir, opt.batch_size, opt.seq_length, split_sizes, opt.word_level, opt.randomize)
+  loader = batchloader.create(opt.data_dir, opt.batch_size, -1, split_sizes, opt.randomize, opt.word_level)
 else
   batchloader = require('SplitLMMinibatchLoader')
   loader = batchloader.create(opt.data_dir, opt.batch_size, opt.seq_length, split_sizes, opt.word_level)
@@ -117,10 +118,8 @@ print("Setup. Can take a while ... ")
 local decoder = StackDecoder(opt)
 
 -- setup training data
-local total_length = loader.ntrain * opt.seq_length
 local epoch_size = loader.ntrain
 local step = 0
-print("Text length: " .. (total_length * opt.batch_size))
 print("Epoch size: " .. epoch_size)
 
 -- load last checkpoint if overwrite is false and it exists --
@@ -172,6 +171,7 @@ else
 end
 
 for _,v in pairs(decoder:networks()) do num_params = num_params + v:getParameters():size(1) end
+opt.vocab = nil --leave out for printing
 
 if opt.overwrite then
   optim_state.losses = {}
@@ -186,7 +186,6 @@ if opt.overwrite then
   append_to_log("time\tepoch\tloss\tvalid_loss")
 end
 
-opt.vocab = nil --leave out for printing
 print(opt)
 print("Num params: " .. num_params)
 if log then log:flush() end
@@ -200,14 +199,18 @@ local total_cases = 0
 
 function create_decoder_state(x,y,s)
   local _s = s or {}
+  local max_len = loader.max_length
+  if opt.max_length > 0 then max_len = math.min(max_len, opt.max_length) end
+  
   if not _s.x or _s.x:size(2) ~= x:size(2) then
-    _s.x = transfer_data(torch.Tensor(loader.seq_length, loader.batch_size))
-    _s.y = transfer_data(torch.Tensor(loader.seq_length, loader.batch_size))
+    _s.x = transfer_data(torch.Tensor(max_len, loader.batch_size))
+    _s.y = transfer_data(torch.Tensor(max_len, loader.batch_size))
   end
-  _s.x:sub(1,x:size(1),1,loader.batch_size):copy(x)
-  _s.y:sub(1,y:size(1),1,loader.batch_size):copy(y)
+  
+  _s.len = math.min(x:size(1),max_len)
+  _s.x:sub(1,_s.len,1,-1):copy(x:sub(1,_s.len,1,-1))
+  _s.y:sub(1,_s.len,1,-1):copy(y:sub(1,_s.len,1,-1))
   _s.pos = 0
-  _s.len = x:size(1)
   return _s
 end
 
@@ -251,9 +254,13 @@ local function run_split(split_index)
     eval_state = create_decoder_state(x, y, eval_state)
     if opt.linewise then decoder:reset() end --if linewise training, then no carrying over of states
     local len = eval_state.len
+    if opt.max_length > 0 then len = math.min(len, opt.max_length) end
     total_len = len + total_len
-    local l = decoder:fp(eval_state, len)
-    loss = loss + l
+    local l = opt.seq_length
+    for i=1,math.ceil(len/opt.seq_length) do -- if lines are longer than max seq_length, then run splits
+      if i == math.ceil(len/opt.seq_length) then l = (len-1) % opt.seq_length + 1 end
+      loss = loss + decoder:fp(eval_state, l)
+    end
     if not opt.word_level then 
       for i = 0, len-1 do
         if rev_vocab[eval_state.x[eval_state.pos-i][1]]:match("%s") then
@@ -285,16 +292,19 @@ optim_state.valid_loss = optim_state.valid_loss or 1e10
 local function run_checkpoint()
   collectgarbage()
   if log then
-    local loss = run_split(2)
+    local loss = 0
+    local train_loss = 0
+    local total_train = 0
+    for i = 1, #optim_state.losses do
+      total_train = total_train + optim_state.lengths[i]
+      train_loss = train_loss + optim_state.losses[i]
+    end
+    train_loss = train_loss / total_train
+
+    if opt.val_frac > 0 then loss = run_split(2) else loss = train_loss end
+    
     local epoch = step / epoch_size
     if optim_state.valid_loss > loss+1e-3 then -- only save this if loss got better
-      local train_loss = 0
-      local total_train = 0
-      for i = 1, #optim_state.losses do
-        total_train = total_train + optim_state.lengths[i]
-        train_loss = train_loss + optim_state.losses[i] 
-      end
-      train_loss = train_loss / total_train
       optim_state.valid_loss = loss
       append_to_log(util.d(torch.toc(beginning_time)) .. "\t" ..
           util.f3(epoch) .. "\t" .. 
@@ -306,7 +316,8 @@ local function run_checkpoint()
       optim_state.time = torch.toc(beginning_time)
       torch.save(opt_state_file, optim_state)
       log:flush()
-      print("Validation set perplexity : " .. util.f3(torch.exp(loss)))
+      if opt.val_frac > 0 then print("Validation set perplexity : " .. util.f3(torch.exp(loss)))
+      else print("Train loss (no validation split): " .. util.f3(torch.exp(loss)))  end
     elseif optim_state.step/opt.checkpoint < step/opt.checkpoint - 2 then
       print("Early stopping based on validation loss. No changes in past 3 checkpoints.")
       step = opt.epochs * epoch_size
@@ -325,8 +336,8 @@ local params, grad_params = model_utils.combine_all_parameters(decoder:networks(
 if opt.overwrite then params:uniform(-0.08, 0.08) end
 
 -- init encoders and decoders
-print("Creating decoders: " .. loader.seq_length .. "...")
-decoder:init_encoders(loader.seq_length)
+print("Creating decoders: " .. opt.seq_length .. "...")
+decoder:init_encoders(opt.seq_length)
 local last_loss = 0
 local train_state
 function feval(x)
@@ -334,7 +345,7 @@ function feval(x)
 
   if x ~= params then params:copy(x) end
   grad_params:zero()
-
+  
   ------------------ get minibatch -------------------
   local x, y = loader:next_batch(1)
   train_state = create_decoder_state(x,y,train_state)
@@ -342,11 +353,15 @@ function feval(x)
   -- forward
   if opt.linewise then decoder:reset() end --if linewise training, then no carrying over of states
   local len = train_state.len
-  local loss = decoder:fp(train_state, len)
-  
-  -- backward
-  decoder:bp(train_state, len)
-  
+  if opt.max_length > 0 then len = math.min(len, opt.max_length) end
+  local loss = 0
+  for i=1,math.ceil(len/opt.seq_length) do -- if lines are longer than max seq_length, then run splits
+    local l = opt.seq_length
+    if i == math.ceil(len/opt.seq_length) then l= (len-1) % opt.seq_length + 1 end
+    loss = loss + decoder:fp(train_state, l)
+    -- backward
+    decoder:bp(train_state, l)
+  end
   -- clip gradient element-wise
   grad_params:clamp(-5, 5)
   last_loss = loss
@@ -360,7 +375,7 @@ end
 ---------- Training -----------------
 print("Training.")
 optim_state.valid_loss = optim_state.valid_loss or 10000
-
+collectgarbage()
 while step < (opt.epochs * epoch_size) do
   step = step + 1
   if opt.weight_decay > 0 then params:mul(1-opt.weight_decay) end

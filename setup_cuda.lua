@@ -5,6 +5,7 @@ use_cuda = true
 local function make_deterministic(seed)
   torch.manualSeed(seed)
   cutorch.manualSeed(seed)
+  torch.zeros(1, 1):cuda():uniform()
 end
 
 function init_gpu(gpuidx)

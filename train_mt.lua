@@ -195,8 +195,8 @@ local total_cases = 0
 function create_decoder_state(x,y,s)
   local _s = s or {}
   if not _s.x or _s.x:size(2) ~= x:size(2) then
-    _s.x = transfer_data(torch.Tensor(loader.seq_length, loader.batch_size))
-    _s.y = transfer_data(torch.Tensor(loader.seq_length, loader.batch_size))
+    _s.x = transfer_data(torch.Tensor(loader.max_length, loader.batch_size))
+    _s.y = transfer_data(torch.Tensor(loader.max_length, loader.batch_size))
   end
   _s.x:sub(1,x:size(1),1,loader.batch_size):copy(x)
   _s.y:sub(1,y:size(1),1,loader.batch_size):copy(y)
@@ -280,9 +280,9 @@ local params, grad_params = model_utils.combine_all_parameters(enc_dec:networks(
 if opt.overwrite then params:uniform(-0.08, 0.08) end
 
 -- init encoders and decoders
-print("Creating decoders: " .. loader.seq_length .. "...")
-enc_dec.encoder:init_encoders(loader.seq_length)
-enc_dec.decoder:init_encoders(loader.seq_length)
+print("Creating decoders: " .. loader.max_length .. "...")
+enc_dec.encoder:init_encoders(loader.max_length)
+enc_dec.decoder:init_encoders(loader.max_length)
 local last_loss = 0
 local train_state
 function feval(x)

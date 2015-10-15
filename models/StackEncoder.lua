@@ -92,7 +92,9 @@ end
 function StackEncoder:random_init(init_weight)
   init_weight = init_weight or 0.08
   for _, n in pairs(self:networks()) do
-    n:getParameters():uniform(-init_weight,init_weight)
+    for _, p in pairs(n:parameters()) do
+      p:uniform(-init_weight,init_weight)
+    end
   end
 end
 
