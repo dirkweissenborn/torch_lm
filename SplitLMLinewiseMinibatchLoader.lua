@@ -36,27 +36,29 @@ function SplitLMLinewiseMinibatchLoader.create(data_dir, batch_size, max_length,
       run_prepro = true
     end
   end
+  local data 
   if run_prepro then
     -- construct a tensor with all the data, and vocab file
     print('one-time setup: preprocessing input text file ' .. input_file .. '...')
-    SplitLMLinewiseMinibatchLoader.text_to_tensor(input_file, vocab_file, tensor_file, words)
+    data, self.vocab_mapping = SplitLMLinewiseMinibatchLoader.text_to_tensor(input_file, vocab_file, tensor_file, words)
+  else
+    print('loading data files...')
+    self.vocab_mapping = torch.load(vocab_file)
+    self.vocab_mapping["<sos>"] = self.vocab_mapping["<sos>"] or vocab_size+1
+    self.vocab_mapping["<eos>"] = self.vocab_mapping["<eos>"] or vocab_size+2
+    --local data = torch.load(tensor_file)
+    local file = torch.DiskFile(tensor_file, 'r')
+    file['binary'](file)
+    file:referenced(false)
+    local data = file:readObject()
+    file:close()
   end
 
   -- perform safety checks on split_fractions
   assert(split_fractions[1] >= 0 and split_fractions[1] <= 1, 'bad split fraction ' .. split_fractions[1] .. ' for train, not between 0 and 1')
   assert(split_fractions[2] >= 0 and split_fractions[2] <= 1, 'bad split fraction ' .. split_fractions[2] .. ' for val, not between 0 and 1')
   assert(split_fractions[3] >= 0 and split_fractions[3] <= 1, 'bad split fraction ' .. split_fractions[3] .. ' for test, not between 0 and 1')
-
-  print('loading data files...')
-  self.vocab_mapping = torch.load(vocab_file)
-  self.vocab_mapping["<sos>"] = self.vocab_mapping["<sos>"] or vocab_size+1
-  self.vocab_mapping["<eos>"] = self.vocab_mapping["<eos>"] or vocab_size+2
-  --local data = torch.load(tensor_file)
-  local file = torch.DiskFile(tensor_file, 'r')
-  file['binary'](file)
-  file:referenced(false)
-  local data = file:readObject()
-  file:close()
+  
   local len = #data
 
   local train_l = math.floor(len * split_fractions[1])
@@ -322,6 +324,7 @@ function SplitLMLinewiseMinibatchLoader.text_to_tensor(in_textfile, out_vocabfil
   file:referenced(false)
   file:writeObject(data)
   file:close()
+  return data, vocab_mapping
 end
 
 return SplitLMLinewiseMinibatchLoader
